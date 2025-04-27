@@ -1,0 +1,5 @@
+{
+  "watch": ["src/", "config/"],
+  "ignore": ["data/*", "logs/*", "*.json", "*.log"],
+  "ext": "js,json"
+} 

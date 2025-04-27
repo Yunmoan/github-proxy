@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 - 页面未找到 | GitHub代理服务</title>
+  <style>
+    body{font-family:STXihei,"华文细黑","Microsoft YaHei","微软雅黑","PingFang SC",sans-serif;background:#f5f5f5;margin:0;padding:0;color:#333;min-height:100vh;display:flex;flex-direction:column}
+    .container{max-width:800px;margin:0 auto;padding:30px 20px;flex:1;display:flex;flex-direction:column;justify-content:center}
+    .card{background:#fff;border-radius:8px;box-shadow:0 3px 15px rgba(0,0,0,0.1);padding:30px;text-align:center;position:relative;overflow:hidden;margin-bottom:20px}
+    .not-found{font-size:120px;font-weight:700;margin:0;background:linear-gradient(135deg,#0366d6,#28a745);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1}
+    .title{font-size:24px;margin:10px 0 20px;color:#0366d6}
+    .description{font-size:16px;line-height:1.6;color:#586069;margin-bottom:30px}
+    .links{margin:20px 0}
+    .link{display:inline-block;background:#0366d6;color:white;padding:10px 25px;border-radius:4px;text-decoration:none;font-weight:500;transition:all 0.3s ease}
+    .link:hover{background:#045cc1;transform:translateY(-2px);box-shadow:0 4px 10px rgba(3,102,214,0.2)}
+    .footer{text-align:center;padding:20px;font-size:14px;color:#666}
+    
+    #canvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:-1;opacity:0.8}
+    
+    @media (max-width:600px){
+      .not-found{font-size:80px}
+      .title{font-size:20px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <canvas id="canvas"></canvas>
+      <h1 class="not-found">404</h1>
+      <h2 class="title">您请求的资源未找到</h2>
+      <p class="description">
+        您访问的页面可能已被移除、名称已更改或暂时不可用。<br>
+        请检查链接是否正确，或返回首页继续浏览。
+      </p>
+      <div class="links">
+        <a href="/" class="link">返回首页</a>
+      </div>
+    </div>
+  </div>
+  
+  <div class="footer">
+    <p>GitHub代理服务 &copy; 2023 | 本服务仅供学习和研究使用</p>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      
+      // 设置canvas尺寸为容器大小
+      function resizeCanvas() {
+        const card = document.querySelector('.card');
+        canvas.width = card.offsetWidth;
+        canvas.height = card.offsetHeight;
+      }
+      
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      
+      // 粒子系统
+      const particles = [];
+      const particleCount = 30;
+      
+      // 创建粒子
+      for (let i = 0; i < particleCount; i++) {
+        particles.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * canvas.height,
+          size: Math.random() * 3 + 1,
+          speedX: (Math.random() - 0.5) * 0.8,
+          speedY: (Math.random() - 0.5) * 0.8,
+          color: `rgba(3, 102, 214, ${Math.random() * 0.5 + 0.1})`
+        });
+      }
+      
+      // 更新和绘制粒子
+      function drawParticles() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        for (let i = 0; i < particleCount; i++) {
+          const p = particles[i];
+          
+          // 更新位置
+          p.x += p.speedX;
+          p.y += p.speedY;
+          
+          // 边界检查
+          if (p.x < 0 || p.x > canvas.width) p.speedX *= -1;
+          if (p.y < 0 || p.y > canvas.height) p.speedY *= -1;
+          
+          // 绘制粒子
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+          
+          // 绘制连接线
+          for (let j = i + 1; j < particleCount; j++) {
+            const p2 = particles[j];
+            const distance = Math.sqrt(
+              Math.pow(p.x - p2.x, 2) + Math.pow(p.y - p2.y, 2)
+            );
+            
+            if (distance < 100) {
+              ctx.beginPath();
+              ctx.strokeStyle = `rgba(3, 102, 214, ${0.1 * (1 - distance / 100)})`;
+              ctx.lineWidth = 1;
+              ctx.moveTo(p.x, p.y);
+              ctx.lineTo(p2.x, p2.y);
+              ctx.stroke();
+            }
+          }
+        }
+        
+        requestAnimationFrame(drawParticles);
+      }
+      
+      drawParticles();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理控制台 - GitHub代理服务</title>
+  <style>
+    body{font-family:STXihei,"华文细黑","Microsoft YaHei","微软雅黑","PingFang SC",sans-serif;background:#f5f5f5;margin:0;padding:0;color:#333}
+    .container{max-width:1200px;margin:0 auto;padding:20px}
+    .header{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #ddd;margin-bottom:20px}
+    .title{font-size:24px;margin:0}
+    .user-info{display:flex;align-items:center}
+    .username{margin-right:15px}
+    .logout-btn{background:none;border:1px solid #d93025;color:#d93025;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:14px}
+    .logout-btn:hover{background:#ffebe6}
+    .dashboard{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+    .card{background:#fff;border-radius:5px;box-shadow:0 2px 10px rgba(0,0,0,0.1);padding:20px}
+    .card-title{font-size:18px;margin-top:0;margin-bottom:15px;color:#1a73e8}
+    .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .stat-item{margin-bottom:10px}
+    .stat-label{font-size:13px;color:#666}
+    .stat-value{font-size:20px;font-weight:bold}
+    .refresh-btn{background:#1a73e8;color:white;border:none;border-radius:4px;padding:8px 15px;cursor:pointer;margin-top:10px}
+    .refresh-btn:hover{background:#155db1}
+    .tabs{display:flex;margin-bottom:20px;border-bottom:1px solid #ddd}
+    .tab{padding:10px 20px;cursor:pointer;border-bottom:2px solid transparent}
+    .tab.active{border-bottom-color:#1a73e8;color:#1a73e8;font-weight:bold}
+    .tab-content{display:none}
+    .tab-content.active{display:block}
+    .loading{text-align:center;padding:20px}
+    
+    /* 添加刷新动画效果 */
+    @keyframes refreshPulse {
+      0% { background-color: rgba(0, 170, 255, 0); }
+      50% { background-color: rgba(0, 170, 255, 0.1); }
+      100% { background-color: rgba(0, 170, 255, 0); }
+    }
+    
+    .refresh-animation {
+      animation: refreshPulse 1s ease;
+    }
+    
+    .refresh-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-left: 5px;
+      border-radius: 50%;
+      transition: all 0.3s;
+    }
+    
+    .refresh-active {
+      background-color: #2ecc71;
+      box-shadow: 0 0 5px #2ecc71;
+    }
+    
+    .refresh-paused {
+      background-color: #e74c3c;
+    }
+    
+    .card-title {
+      display: flex;
+      align-items: center;
+    }
+    
+    .auto-refresh-status {
+      margin-left: auto;
+      font-size: 12px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">GitHub代理服务 管理控制台</h1>
+      <div class="user-info">
+        <span class="username" id="username"></span>
+        <button class="logout-btn" id="logout-btn">退出登录</button>
+      </div>
+    </div>
+    
+    <div class="tabs">
+      <div class="tab active" data-tab="dashboard">仪表盘</div>
+      <div class="tab" data-tab="performance">性能统计</div>
+      <div class="tab" data-tab="blacklist">黑名单管理</div>
+      <div class="tab" data-tab="logs">日志查看</div>
+      <div class="tab" data-tab="users">用户管理</div>
+    </div>
+    
+    <div class="tab-content active" id="dashboard-content">
+      <div class="dashboard">
+        <div class="card" data-type="system">
+          <h2 class="card-title">
+            系统概览
+            <span class="auto-refresh-status"></span>
+          </h2>
+          <div class="stats" id="system-stats">
+            <div class="stat-item">
+              <div class="stat-label">系统运行时间</div>
+              <div class="stat-value" id="uptime">--:--:--</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">内存使用</div>
+              <div class="stat-value" id="memory-usage">-- / --</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">CPU负载</div>
+              <div class="stat-value" id="cpu-usage">--%</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">进程内存</div>
+              <div class="stat-value" id="process-memory">--MB</div>
+            </div>
+          </div>
+          <button class="refresh-btn" id="refresh-system">刷新数据</button>
+        </div>
+        
+        <div class="card" data-type="requests">
+          <h2 class="card-title">
+            请求统计
+            <span class="auto-refresh-status"></span>
+          </h2>
+          <div class="stats" id="request-stats">
+            <div class="stat-item">
+              <div class="stat-label">总请求数</div>
+              <div class="stat-value" id="total-requests">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">成功请求</div>
+              <div class="stat-value" id="success-requests">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">错误请求</div>
+              <div class="stat-value" id="error-requests">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">成功率</div>
+              <div class="stat-value" id="success-rate">--%</div>
+            </div>
+          </div>
+          <button class="refresh-btn" id="refresh-requests">刷新数据</button>
+        </div>
+        
+        <div class="card" data-type="cache">
+          <h2 class="card-title">
+            缓存状态
+            <span class="auto-refresh-status"></span>
+          </h2>
+          <div class="stats" id="cache-stats">
+            <div class="stat-item">
+              <div class="stat-label">缓存条目数</div>
+              <div class="stat-value" id="cache-items">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">缓存大小</div>
+              <div class="stat-value" id="cache-size">0 MB</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">缓存命中次数</div>
+              <div class="stat-value" id="cache-hits">0</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">缓存命中率</div>
+              <div class="stat-value" id="cache-hit-rate">--%</div>
+            </div>
+          </div>
+          <button class="refresh-btn" id="refresh-cache">刷新数据</button>
+        </div>
+        
+        <div class="card" data-type="repos">
+          <h2 class="card-title">
+            热门仓库
+            <span class="auto-refresh-status"></span>
+          </h2>
+          <div id="repos-stats">
+            <p style="text-align:center">加载中...</p>
+          </div>
+          <button class="refresh-btn" id="refresh-repos">刷新数据</button>
+        </div>
+      </div>
+    </div>
+    
+    <div class="tab-content" id="performance-content">
+      <div class="loading">正在加载性能数据...</div>
+    </div>
+    
+    <div class="tab-content" id="blacklist-content">
+      <div class="loading">正在加载黑名单数据...</div>
+    </div>
+    
+    <div class="tab-content" id="logs-content">
+      <div class="loading">正在加载日志数据...</div>
+    </div>
+    
+    <div class="tab-content" id="users-content">
+      <div class="loading">正在加载用户数据...</div>
+    </div>
+  </div>
+
+  <script>
+    // 自动刷新控制
+    let autoRefreshEnabled = true;
+    let autoRefreshIntervals = {
+      system: 30000,     // 系统信息：30秒
+      requests: 15000,   // 请求统计：15秒
+      cache: 60000,      // 缓存统计：60秒
+      performance: 120000 // 性能数据：2分钟
+    };
+    let autoRefreshTimers = {};
+
+    document.addEventListener('DOMContentLoaded', () => {
+      // 验证登录状态
+      const token = localStorage.getItem('admin_token');
+      const username = localStorage.getItem('admin_username');
+      
+      if (!token || !username) {
+        // 未登录，重定向到登录页
+        window.location.href = '/admin/login.html';
+        return;
+      }
+      
+      // 显示用户名
+      document.getElementById('username').textContent = `欢迎，${username}`;
+      
+      // 退出登录
+      document.getElementById('logout-btn').addEventListener('click', () => {
+        localStorage.removeItem('admin_token');
+        localStorage.removeItem('admin_username');
+        window.location.href = '/admin/login.html';
+      });
+      
+      // 标签页切换
+      const tabs = document.querySelectorAll('.tab');
+      const tabContents = document.querySelectorAll('.tab-content');
+      
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const tabId = tab.getAttribute('data-tab');
+          
+          // 更新激活标签
+          tabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          
+          // 显示对应内容
+          tabContents.forEach(content => {
+            content.classList.remove('active');
+            if (content.id === `${tabId}-content`) {
+              content.classList.add('active');
+              
+              // 首次激活时加载数据
+              if (content.getAttribute('data-loaded') !== 'true') {
+                loadTabData(tabId);
+                content.setAttribute('data-loaded', 'true');
+              }
+            }
+          });
+        });
+      });
+      
+      // 页面加载时自动加载仪表盘数据
+      loadDashboardData();
+      
+      // 刷新按钮事件
+      document.getElementById('refresh-system').addEventListener('click', () => loadSystemStats());
+      document.getElementById('refresh-requests').addEventListener('click', () => loadRequestStats());
+      document.getElementById('refresh-cache').addEventListener('click', () => loadCacheStats());
+      document.getElementById('refresh-repos').addEventListener('click', () => loadTopRepos());
+      document.getElementById('refresh-performance')?.addEventListener('click', () => loadPerformanceData());
+
+      // 添加自动刷新切换按钮到页面
+      addAutoRefreshControls();
+      
+      // 启动自动刷新计时器
+      startAutoRefresh();
+    });
+    
+    // 添加自动刷新控制UI
+    function addAutoRefreshControls() {
+      const header = document.querySelector('header');
+      if (!header) return;
+      
+      const controlsContainer = document.createElement('div');
+      controlsContainer.className = 'auto-refresh-controls';
+      controlsContainer.style.display = 'flex';
+      controlsContainer.style.alignItems = 'center';
+      controlsContainer.style.marginLeft = 'auto';
+      controlsContainer.style.marginRight = '20px';
+      
+      const label = document.createElement('label');
+      label.style.marginRight = '10px';
+      label.style.fontSize = '14px';
+      label.style.display = 'flex';
+      label.style.alignItems = 'center';
+      label.style.cursor = 'pointer';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = 'auto-refresh-toggle';
+      checkbox.checked = autoRefreshEnabled;
+      checkbox.style.marginRight = '5px';
+      
+      checkbox.addEventListener('change', (e) => {
+        autoRefreshEnabled = e.target.checked;
+        
+        if (autoRefreshEnabled) {
+          startAutoRefresh();
+          console.log('自动刷新已启用');
+        } else {
+          stopAutoRefresh();
+          console.log('自动刷新已禁用');
+        }
+      });
+      
+      label.appendChild(checkbox);
+      label.appendChild(document.createTextNode('自动刷新'));
+      
+      // 添加刷新状态指示器
+      const indicator = document.createElement('span');
+      indicator.id = 'refresh-indicator';
+      indicator.className = `refresh-indicator ${autoRefreshEnabled ? 'refresh-active' : 'refresh-paused'}`;
+      label.appendChild(indicator);
+      
+      controlsContainer.appendChild(label);
+      header.appendChild(controlsContainer);
+    }
+    
+    // 启动自动刷新计时器
+    function startAutoRefresh() {
+      if (!autoRefreshEnabled) return;
+      
+      // 清除现有计时器
+      stopAutoRefresh();
+      
+      // 更新UI指示器
+      updateRefreshIndicator(true);
+      
+      // 系统统计自动刷新
+      autoRefreshTimers.system = setInterval(() => {
+        if (document.getElementById('dashboard-content').classList.contains('active')) {
+          loadSystemStats();
+        }
+      }, autoRefreshIntervals.system);
+      
+      // 请求统计自动刷新
+      autoRefreshTimers.requests = setInterval(() => {
+        if (document.getElementById('dashboard-content').classList.contains('active')) {
+          loadRequestStats();
+        }
+      }, autoRefreshIntervals.requests);
+      
+      // 缓存统计自动刷新
+      autoRefreshTimers.cache = setInterval(() => {
+        if (document.getElementById('dashboard-content').classList.contains('active')) {
+          loadCacheStats();
+        }
+      }, autoRefreshIntervals.cache);
+      
+      // 仓库统计自动刷新
+      autoRefreshTimers.repos = setInterval(() => {
+        if (document.getElementById('dashboard-content').classList.contains('active')) {
+          loadTopRepos();
+        }
+      }, autoRefreshIntervals.requests); // 使用与请求统计相同的刷新频率
+      
+      // 性能统计自动刷新
+      autoRefreshTimers.performance = setInterval(() => {
+        if (document.getElementById('performance-content').classList.contains('active')) {
+          loadPerformanceData();
+        }
+      }, autoRefreshIntervals.performance);
+    }
+    
+    // 停止自动刷新计时器
+    function stopAutoRefresh() {
+      Object.keys(autoRefreshTimers).forEach(key => {
+        if (autoRefreshTimers[key]) {
+          clearInterval(autoRefreshTimers[key]);
+          autoRefreshTimers[key] = null;
+        }
+      });
+      
+      // 更新UI指示器
+      updateRefreshIndicator(false);
+    }
+
+    // 更新刷新状态指示器
+    function updateRefreshIndicator(isActive) {
+      const indicator = document.getElementById('refresh-indicator');
+      if (indicator) {
+        indicator.className = `refresh-indicator ${isActive ? 'refresh-active' : 'refresh-paused'}`;
+      }
+      
+      // 更新各卡片状态显示
+      updateCardRefreshStatus();
+    }
+
+    // API调用函数
+    async function fetchApi(url, options = {}) {
+      const token = localStorage.getItem('admin_token');
+      
+      const defaultOptions = {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      };
+      
+      try {
+        const response = await fetch(url, { ...defaultOptions, ...options });
+        
+        if (response.status === 401) {
+          // 认证失败，重定向到登录页
+          localStorage.removeItem('admin_token');
+          localStorage.removeItem('admin_username');
+          window.location.href = '/admin/login.html';
+          throw new Error('认证失败');
+        }
+        
+        return await response.json();
+      } catch (error) {
+        console.error('API请求失败:', error);
+        throw error;
+      }
+    }
+    
+    // 加载仪表盘数据
+    function loadDashboardData() {
+      loadSystemStats();
+      loadRequestStats();
+      loadCacheStats();
+      loadTopRepos();
+    }
+    
+    // 加载系统统计数据
+    async function loadSystemStats() {
+      try {
+        const systemStatsElement = document.getElementById('system-stats');
+        
+        // 获取数据前显示刷新动画
+        showRefreshAnimation('system-stats');
+        
+        const data = await fetchApi('/admin/system');
+        console.log('系统信息数据:', data); // 调试用
+        
+        // 添加安全检查
+        if (data.uptime && data.uptime.formatted) {
+          document.getElementById('uptime').textContent = data.uptime.formatted;
+        } else {
+          document.getElementById('uptime').textContent = '--:--:--';
+        }
+        
+        // 系统内存使用
+        if (data.systemMemory && data.systemMemory.usedPercentage) {
+          document.getElementById('memory-usage').textContent = data.systemMemory.usedPercentage;
+        } else {
+          document.getElementById('memory-usage').textContent = '--';
+        }
+        
+        // CPU 使用率 - 修复：基本信息接口没有返回cpu使用率
+        // 尝试获取详细系统信息
+        try {
+          const detailedData = await fetchApi('/admin/system/detailed');
+          if (detailedData && detailedData.cpu && detailedData.cpu.usage !== undefined) {
+            document.getElementById('cpu-usage').textContent = `${detailedData.cpu.usage}%`;
+          } else {
+            document.getElementById('cpu-usage').textContent = '--';
+          }
+        } catch (err) {
+          console.warn('获取CPU详细信息失败，显示默认值', err);
+          document.getElementById('cpu-usage').textContent = '--';
+        }
+        
+        // 进程内存 - 修正为服务器实际返回的结构
+        if (data.memory && data.memory.rss) {
+          document.getElementById('process-memory').textContent = data.memory.rss;
+        } else if (data.memory && data.memory.process && data.memory.process.rssFormatted) {
+          document.getElementById('process-memory').textContent = data.memory.process.rssFormatted;
+        } else {
+          document.getElementById('process-memory').textContent = '--';
+        }
+      } catch (error) {
+        console.error('加载系统统计失败:', error);
+      }
+    }
+    
+    // 加载请求统计数据
+    async function loadRequestStats() {
+      try {
+        // 获取数据前显示刷新动画
+        showRefreshAnimation('request-stats');
+        
+        const data = await fetchApi('/admin/stats');
+        
+        const total = data.totalRequests || 0;
+        const success = data.requestsSuccess || 0;
+        const error = data.requestsError || 0;
+        const successRate = total > 0 ? Math.round((success / total) * 100) : 0;
+        
+        document.getElementById('total-requests').textContent = total;
+        document.getElementById('success-requests').textContent = success;
+        document.getElementById('error-requests').textContent = error;
+        document.getElementById('success-rate').textContent = `${successRate}%`;
+      } catch (error) {
+        console.error('加载请求统计失败:', error);
+      }
+    }
+    
+    // 加载缓存统计数据
+    async function loadCacheStats() {
+      try {
+        // 获取数据前显示刷新动画
+        showRefreshAnimation('cache-stats');
+        
+        const data = await fetchApi('/admin/cache/stats');
+        
+        document.getElementById('cache-items').textContent = data.cacheItemCount || 0;
+        document.getElementById('cache-size').textContent = data.cacheSize || '0 MB';
+        document.getElementById('cache-hits').textContent = data.cacheHitCount || 0;
+        document.getElementById('cache-hit-rate').textContent = data.cacheHitRate || '0%';
+      } catch (error) {
+        console.error('加载缓存统计失败:', error);
+      }
+    }
+    
+    // 加载标签页数据
+    function loadTabData(tabId) {
+      switch (tabId) {
+        case 'performance':
+          loadPerformanceData();
+          break;
+        case 'blacklist':
+          loadBlacklistData();
+          break;
+        case 'logs':
+          loadLogsData();
+          break;
+        case 'users':
+          loadUsersData();
+          break;
+      }
+    }
+    
+    // 加载性能数据
+    function loadPerformanceData() {
+      const performanceContent = document.getElementById('performance-content');
+      
+      // 先显示加载中
+      if (performanceContent.getAttribute('data-loaded') === 'true') {
+        showRefreshAnimation('performance-content');
+      } else {
+        performanceContent.innerHTML = '<div class="loading">正在加载性能数据...</div>';
+      }
+      
+      fetchApi('/admin/performance')
+        .then(data => {
+          if (!data) {
+            performanceContent.innerHTML = '<p style="text-align:center;color:#d93025">获取性能数据失败</p>';
+            return;
+          }
+          
+          console.log('性能数据:', data); // 添加调试日志查看返回数据结构
+          
+          // 构建性能数据的HTML
+          let html = `
+            <div class="card" data-type="performance" style="margin-bottom:20px">
+              <h2 class="card-title">
+                性能概览
+                <span class="auto-refresh-status"></span>
+                <button id="reset-performance" class="mini-button" title="重置性能数据" 
+                        style="float:right;background:#f44336;color:white;margin-left:5px;">
+                  重置数据
+                </button>
+              </h2>
+              <div class="stats">
+                <div class="stat-item">
+                  <div class="stat-label">平均响应时间</div>
+                  <div class="stat-value">${data.averageResponseTime || '0ms'}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">慢请求数量</div>
+                  <div class="stat-value">${data.slowRequests?.length || 0}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">错误请求数量</div>
+                  <div class="stat-value">${data.errors || 0}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">处理请求总数</div>
+                  <div class="stat-value">${data.requestsProcessed || 0}</div>
+                </div>
+              </div>
+            </div>`;
+          
+          // 仓库请求统计表格
+          if (data.repositoryStats && data.repositoryStats.length > 0) {
+            html += `
+              <div class="card" style="margin-bottom:20px">
+                <h2 class="card-title">热门仓库请求统计</h2>
+                <table style="width:100%;border-collapse:collapse">
+                  <thead>
+                    <tr style="background:#f5f5f5">
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">仓库</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">请求数量</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">平均响应时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.repositoryStats.map(repo => `
+                      <tr>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${repo.repository}</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${repo.requestsCount}</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${repo.averageResponseTime}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>`;
+          }
+
+          // 慢请求表格
+          if (data.slowRequests && data.slowRequests.length > 0) {
+            html += `
+              <div class="card" style="margin-bottom:20px">
+                <h2 class="card-title">慢请求列表</h2>
+                <table style="width:100%;border-collapse:collapse">
+                  <thead>
+                    <tr style="background:#f5f5f5">
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">路径</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">响应时间</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">时间戳</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.slowRequests.map(req => `
+                      <tr>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${req.path}</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${req.duration || req.responseTime}ms</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${new Date(req.timestamp).toLocaleString()}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>`;
+          }
+          
+          // 错误请求表格
+          if (data.errors && data.errors.length > 0) {
+            html += `
+              <div class="card">
+                <h2 class="card-title">错误请求列表</h2>
+                <table style="width:100%;border-collapse:collapse">
+                  <thead>
+                    <tr style="background:#f5f5f5">
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">路径</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">状态码</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">错误信息</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">时间戳</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${data.errors.map(err => `
+                      <tr>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${err.path}</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${err.statusCode || '未知'}</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${err.message || '未知错误'}</td>
+                        <td style="padding:10px;border-bottom:1px solid #eee">${new Date(err.timestamp).toLocaleString()}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>`;
+          }
+          
+          performanceContent.innerHTML = html;
+          
+          // 为重置按钮添加事件监听
+          document.getElementById('reset-performance')?.addEventListener('click', resetPerformanceData);
+        })
+        .catch(error => {
+          performanceContent.innerHTML = `<p style="text-align:center;color:#d93025">加载性能数据失败: ${error.message}</p>`;
+        });
+    }
+    
+    // 重置性能数据
+    function resetPerformanceData() {
+      if (confirm('确定要重置所有性能数据吗？此操作不可撤销！')) {
+        fetchApi('/admin/performance/reset', { method: 'POST' })
+          .then(response => {
+            if (response && response.success) {
+              alert(`性能数据已重置: ${response.message}`);
+              // 重新加载性能数据和热门仓库数据
+              loadPerformanceData();
+              loadTopRepos();
+            } else {
+              alert(`重置失败: ${response.error || '未知错误'}`);
+            }
+          })
+          .catch(error => {
+            alert(`重置性能数据失败: ${error.message}`);
+          });
+      }
+    }
+    
+    // 加载黑名单数据
+    function loadBlacklistData() {
+      const blacklistContent = document.getElementById('blacklist-content');
+      
+      // 先显示加载中
+      blacklistContent.innerHTML = '<div class="loading">正在加载黑名单数据...</div>';
+      
+      fetchApi('/admin/blacklist')
+        .then(data => {
+          if (!data) {
+            blacklistContent.innerHTML = '<p style="text-align:center;color:#d93025">获取黑名单数据失败</p>';
+            return;
+          }
+          
+          // 构建黑名单数据的HTML
+          let html = `
+            <div class="card" style="margin-bottom:20px">
+              <h2 class="card-title">黑名单配置</h2>
+              <div style="margin-bottom:15px">
+                <div style="display:flex;align-items:center;margin-bottom:10px">
+                  <label style="margin-right:10px;font-weight:bold">启用黑名单:</label>
+                  <input type="checkbox" id="blacklist-enabled" ${data.enabled ? 'checked' : ''}>
+                </div>
+                <div style="display:flex;align-items:center">
+                  <label style="margin-right:10px;font-weight:bold">记录被阻止的请求:</label>
+                  <input type="checkbox" id="blacklist-log-blocked" ${data.logBlocked ? 'checked' : ''}>
+                </div>
+              </div>
+              <div style="display:flex;gap:10px;margin-top:20px">
+                <button id="update-blacklist-config" class="refresh-btn">保存配置</button>
+                <button id="reload-blacklist" class="refresh-btn" style="background:#555">重新加载黑名单</button>
+                <button id="export-blacklist" class="refresh-btn" style="background:#28a745">导出黑名单</button>
+                <button id="import-blacklist" class="refresh-btn" style="background:#ffc107;color:#333">导入黑名单</button>
+              </div>
+            </div>`;
+          
+          // 仓库黑名单
+          html += `
+            <div class="card" style="margin-bottom:20px">
+              <h2 class="card-title">仓库黑名单</h2>
+              <div id="repo-blacklist">
+                <table style="width:100%;border-collapse:collapse;margin-bottom:15px">
+                  <thead>
+                    <tr style="background:#f5f5f5">
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">仓库路径</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="repo-blacklist-body">
+                    ${data.repositories && data.repositories.length > 0 ? 
+                      data.repositories.map(repo => `
+                        <tr>
+                          <td style="padding:10px;border-bottom:1px solid #eee">${repo}</td>
+                          <td style="padding:10px;border-bottom:1px solid #eee">
+                            <button class="remove-blacklist-btn" data-type="repo" data-value="${repo}" style="background:#d93025;color:white;border:none;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:12px">删除</button>
+                          </td>
+                        </tr>
+                      `).join('') : 
+                      '<tr><td colspan="2" style="padding:10px;text-align:center">暂无黑名单仓库</td></tr>'
+                    }
+                  </tbody>
+                </table>
+                <div style="display:flex;margin-top:15px">
+                  <input type="text" id="new-repo" placeholder="添加仓库（格式：用户名/仓库名）" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:4px">
+                  <button id="add-repo-btn" class="refresh-btn" style="margin-left:10px">添加</button>
+                </div>
+              </div>
+            </div>`;
+          
+          // 关键词黑名单
+          html += `
+            <div class="card">
+              <h2 class="card-title">关键词黑名单</h2>
+              <div id="keyword-blacklist">
+                <table style="width:100%;border-collapse:collapse;margin-bottom:15px">
+                  <thead>
+                    <tr style="background:#f5f5f5">
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">关键词</th>
+                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="keyword-blacklist-body">
+                    ${data.keywords && data.keywords.length > 0 ? 
+                      data.keywords.map(keyword => `
+                        <tr>
+                          <td style="padding:10px;border-bottom:1px solid #eee">${keyword}</td>
+                          <td style="padding:10px;border-bottom:1px solid #eee">
+                            <button class="remove-blacklist-btn" data-type="keyword" data-value="${keyword}" style="background:#d93025;color:white;border:none;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:12px">删除</button>
+                          </td>
+                        </tr>
+                      `).join('') : 
+                      '<tr><td colspan="2" style="padding:10px;text-align:center">暂无黑名单关键词</td></tr>'
+                    }
+                  </tbody>
+                </table>
+                <div style="display:flex;margin-top:15px">
+                  <input type="text" id="new-keyword" placeholder="添加关键词" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:4px">
+                  <button id="add-keyword-btn" class="refresh-btn" style="margin-left:10px">添加</button>
+                </div>
+              </div>
+            </div>`;
+          
+          blacklistContent.innerHTML = html;
+          
+          // 添加事件监听器
+          document.getElementById('update-blacklist-config').addEventListener('click', updateBlacklistConfig);
+          document.getElementById('reload-blacklist').addEventListener('click', reloadBlacklist);
+          document.getElementById('export-blacklist').addEventListener('click', exportBlacklist);
+          document.getElementById('import-blacklist').addEventListener('click', importBlacklist);
+          document.getElementById('add-repo-btn').addEventListener('click', addRepoToBlacklist);
+          document.getElementById('add-keyword-btn').addEventListener('click', addKeywordToBlacklist);
+          
+          // 为所有删除按钮添加事件
+          document.querySelectorAll('.remove-blacklist-btn').forEach(btn => {
+            btn.addEventListener('click', removeFromBlacklist);
+          });
+        })
+        .catch(error => {
+          blacklistContent.innerHTML = `<p style="text-align:center;color:#d93025">加载黑名单数据失败: ${error.message}</p>`;
+        });
+    }
+    
+    // 更新黑名单配置
+    async function updateBlacklistConfig() {
+      try {
+        const enabled = document.getElementById('blacklist-enabled').checked;
+        const logBlocked = document.getElementById('blacklist-log-blocked').checked;
+        
+        const response = await fetchApi('/admin/blacklist/update', {
+          method: 'POST',
+          body: JSON.stringify({
+            enabled,
+            logBlocked
+          })
+        });
+        
+        if (response.success) {
+          alert('黑名单配置已更新');
+        } else {
+          alert('更新黑名单配置失败: ' + (response.message || '未知错误'));
+        }
+      } catch (error) {
+        alert('更新黑名单配置请求失败: ' + (error.message || '未知错误'));
+      }
+    }
+    
+    // 重新加载黑名单
+    async function reloadBlacklist() {
+      try {
+        const response = await fetchApi('/admin/blacklist/reload', {
+          method: 'POST'
+        });
+        
+        if (response.success) {
+          alert('黑名单已重新加载');
+          loadBlacklistData(); // 刷新显示
+        } else {
+          alert('重新加载黑名单失败: ' + (response.message || '未知错误'));
+        }
+      } catch (error) {
+        alert('重新加载黑名单请求失败: ' + (error.message || '未知错误'));
+      }
+    }
+    
+    // 导出黑名单
+    async function exportBlacklist() {
+      try {
+        const data = await fetchApi('/admin/blacklist/export');
+        
+        // 将数据转换为JSON字符串
+        const jsonStr = JSON.stringify(data, null, 2);
+        
+        // 创建下载链接
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'blacklist-export-' + new Date().toISOString().split('T')[0] + '.json';
+        document.body.appendChild(a);
+        a.click();
+        
+        // 清理
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 0);
+      } catch (error) {
+        alert('导出黑名单失败: ' + (error.message || '未知错误'));
+      }
+    }
+    
+    // 导入黑名单
+    async function importBlacklist() {
+      // 创建文件选择器
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/json';
+      
+      input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const content = JSON.parse(event.target.result);
+            
+            const response = await fetchApi('/admin/blacklist/import', {
+              method: 'POST',
+              body: JSON.stringify(content)
+            });
+            
+            if (response.success) {
+              alert('黑名单导入成功');
+              loadBlacklistData(); // 刷新显示
+            } else {
+              alert('导入黑名单失败: ' + (response.message || '未知错误'));
+            }
+          } catch (error) {
+            alert('导入黑名单失败: ' + (error.message || '未知错误'));
+          }
+        };
+        
+        reader.readAsText(file);
+      };
+      
+      input.click();
+    }
+    
+    // 添加仓库到黑名单
+    async function addRepoToBlacklist() {
+      const repoInput = document.getElementById('new-repo');
+      const repo = repoInput.value.trim();
+      
+      if (!repo) {
+        alert('请输入有效的仓库路径');
+        return;
+      }
+      
+      try {
+        const response = await fetchApi('/admin/blacklist/add', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'repository',
+            value: repo
+          })
+        });
+        
+        if (response.success) {
+          alert('仓库已添加到黑名单');
+          repoInput.value = '';
+          loadBlacklistData(); // 刷新显示
+        } else {
+          alert('添加仓库到黑名单失败: ' + (response.message || '未知错误'));
+        }
+      } catch (error) {
+        alert('添加仓库到黑名单请求失败: ' + (error.message || '未知错误'));
+      }
+    }
+    
+    // 添加关键词到黑名单
+    async function addKeywordToBlacklist() {
+      const keywordInput = document.getElementById('new-keyword');
+      const keyword = keywordInput.value.trim();
+      
+      if (!keyword) {
+        alert('请输入有效的关键词');
+        return;
+      }
+      
+      try {
+        const response = await fetchApi('/admin/blacklist/add', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'keyword',
+            value: keyword
+          })
+        });
+        
+        if (response.success) {
+          alert('关键词已添加到黑名单');
+          keywordInput.value = '';
+          loadBlacklistData(); // 刷新显示
+        } else {
+          alert('添加关键词到黑名单失败: ' + (response.message || '未知错误'));
+        }
+      } catch (error) {
+        alert('添加关键词到黑名单请求失败: ' + (error.message || '未知错误'));
+      }
+    }
+    
+    // 从黑名单中移除项目
+    async function removeFromBlacklist(e) {
+      const type = e.target.getAttribute('data-type');
+      const value = e.target.getAttribute('data-value');
+      
+      if (!type || !value) return;
+      
+      if (!confirm(`确定要从黑名单中移除 ${value} 吗？`)) return;
+      
+      try {
+        const response = await fetchApi('/admin/blacklist/remove', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: type === 'repo' ? 'repository' : 'keyword',
+            value
+          })
+        });
+        
+        if (response.success) {
+          alert('黑名单项目已移除');
+          loadBlacklistData(); // 刷新显示
+        } else {
+          alert('移除黑名单项目失败: ' + (response.message || '未知错误'));
+        }
+      } catch (error) {
+        alert('移除黑名单项目请求失败: ' + (error.message || '未知错误'));
+      }
+    }
+    
+    // 加载日志数据
+    function loadLogsData() {
+      const logsContent = document.getElementById('logs-content');
+      
+      // 先构建日志查看界面
+      logsContent.innerHTML = `
+        <div class="card" style="margin-bottom:20px">
+          <h2 class="card-title">日志查看</h2>
+          <div style="margin-bottom:15px;display:flex;gap:10px;align-items:center">
+            <label style="font-weight:bold">日志类型:</label>
+            <select id="log-type" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+              <option value="access">访问日志</option>
+              <option value="error">错误日志</option>
+              <option value="blocked">拦截日志</option>
+            </select>
+            
+            <label style="font-weight:bold;margin-left:20px">显示条数:</label>
+            <select id="log-limit" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+            
+            <button id="load-logs-btn" class="refresh-btn" style="margin-left:20px">加载日志</button>
+            <button id="clear-logs-btn" class="refresh-btn" style="background:#d93025;margin-left:10px">清空日志</button>
+          </div>
+        </div>
+        
+        <div class="card">
+          <h2 class="card-title">日志内容</h2>
+          <div id="log-content" style="margin-top:15px;max-height:600px;overflow:auto">
+            <p class="text-center">选择日志类型并点击"加载日志"按钮查看日志</p>
+          </div>
+        </div>
+      `;
+      
+      // 为按钮添加事件
+      document.getElementById('load-logs-btn').addEventListener('click', loadLogContent);
+      document.getElementById('clear-logs-btn').addEventListener('click', clearSelectedLog);
+      
+      // 默认加载访问日志
+      loadLogContent();
+    }
+    
+    // 加载日志内容
+    async function loadLogContent() {
+      const logContentElement = document.getElementById('log-content');
+      const logType = document.getElementById('log-type').value;
+      const limit = document.getElementById('log-limit').value;
+      
+      logContentElement.innerHTML = '<p class="text-center">正在加载日志...</p>';
+      
+      try {
+        // 使用正确的API路径
+        const data = await fetchApi(`/admin/logs/${logType}?limit=${limit}`);
+        
+        console.log('日志数据:', data); // 添加调试信息
+        
+        if (!data || !data.logs || data.logs.length === 0) {
+          logContentElement.innerHTML = '<p class="text-center">暂无日志数据</p>';
+          return;
+        }
+        
+        // 显示日志文件信息
+        let html = `
+          <div style="margin-bottom:10px">
+            <div><strong>文件:</strong> ${data.file}.log</div>
+            <div><strong>总行数:</strong> ${data.total || 0}</div>
+            <div><strong>显示行数:</strong> ${data.showing || 0}</div>
+          </div>
+          <pre style="background:#f5f5f5;padding:15px;border-radius:4px;overflow:auto;max-height:500px">${data.logs.join('\n')}</pre>`;
+        
+        logContentElement.innerHTML = html;
+      } catch (error) {
+        console.error('加载日志失败:', error);
+        logContentElement.innerHTML = `<p class="text-align:center;color:#d93025">加载日志失败: ${error.message || '未知错误'}</p>`;
+      }
+    }
+    
+    // 清空所选日志
+    async function clearSelectedLog() {
+      const logType = document.getElementById('log-type').value;
+      
+      if (!confirm(`确定要清空${logType === 'access' ? '访问' : logType === 'error' ? '错误' : '拦截'}日志吗？此操作不可恢复！`)) {
+        return;
+      }
+      
+      try {
+        const response = await fetchApi(`/admin/logs/${logType}/clear`, {
+          method: 'POST'
+        });
+        
+        if (response.success) {
+          alert('日志已清空');
+          // 刷新日志内容
+          loadLogContent();
+        } else {
+          alert('清空日志失败: ' + (response.message || '未知错误'));
+        }
+      } catch (error) {
+        alert('清空日志请求失败: ' + (error.message || '未知错误'));
+      }
+    }
+
+    // 加载用户数据
+    function loadUsersData() {
+      // 加载用户数据
+      const usersContent = document.getElementById('users-content');
+      usersContent.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:20px">
+          <div class="card" style="flex:1;min-width:300px">
+            <h2 class="card-title">修改我的密码</h2>
+            <form id="change-password-form" style="margin-top:20px">
+              <div style="margin-bottom:15px">
+                <label style="display:block;margin-bottom:5px;font-weight:bold">当前密码</label>
+                <input type="password" id="current-password" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+              </div>
+              <div style="margin-bottom:15px">
+                <label style="display:block;margin-bottom:5px;font-weight:bold">新密码</label>
+                <input type="password" id="new-password" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+              </div>
+              <div style="margin-bottom:15px">
+                <label style="display:block;margin-bottom:5px;font-weight:bold">确认新密码</label>
+                <input type="password" id="confirm-password" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+              </div>
+              <button type="submit" class="refresh-btn" style="width:100%">修改密码</button>
+            </form>
+            <div id="password-message" style="margin-top:10px;text-align:center;color:#1a73e8;font-weight:bold"></div>
+          </div>
+          
+          <div class="card" style="flex:2;min-width:300px">
+            <h2 class="card-title">用户列表</h2>
+            <div id="users-list" style="margin-top:20px">正在加载用户列表...</div>
+          </div>
+        </div>
+      `;
+      
+      // 获取用户列表
+      fetchApi('/admin/users')
+        .then(data => {
+          const usersList = document.getElementById('users-list');
+          if (data && data.length > 0) {
+            const tableHTML = `
+              <table style="width:100%;border-collapse:collapse">
+                <thead>
+                  <tr style="background:#f5f5f5">
+                    <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">用户名</th>
+                    <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">角色</th>
+                    <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.map(user => `
+                    <tr>
+                      <td style="padding:10px;border-bottom:1px solid #eee">${user.username}</td>
+                      <td style="padding:10px;border-bottom:1px solid #eee">${user.role}</td>
+                      <td style="padding:10px;border-bottom:1px solid #eee">
+                        <button class="change-password-btn" data-username="${user.username}" style="background:#1a73e8;color:white;border:none;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:12px">修改密码</button>
+                        ${user.username !== 'admin' ? `<button class="delete-user-btn" data-username="${user.username}" style="background:#d93025;color:white;border:none;border-radius:4px;padding:5px 10px;cursor:pointer;font-size:12px;margin-left:5px">删除</button>` : ''}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              
+              <div style="margin-top:20px">
+                <button id="add-user-btn" class="refresh-btn">添加新用户</button>
+              </div>
+            `;
+            usersList.innerHTML = tableHTML;
+            
+            // 添加密码修改按钮事件
+            document.querySelectorAll('.change-password-btn').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const username = btn.getAttribute('data-username');
+                showChangePasswordModal(username);
+              });
+            });
+            
+            // 添加删除用户按钮事件
+            document.querySelectorAll('.delete-user-btn').forEach(btn => {
+              btn.addEventListener('click', async () => {
+                const username = btn.getAttribute('data-username');
+                if (confirm(`确定要删除用户 ${username} 吗？`)) {
+                  try {
+                    const response = await fetchApi('/admin/users/delete', {
+                      method: 'POST',
+                      body: JSON.stringify({ username })
+                    });
+                    
+                    if (response.success) {
+                      alert('用户删除成功');
+                      loadUsersData(); // 重新加载用户列表
+                    } else {
+                      alert(response.message || '删除用户失败');
+                    }
+                  } catch (error) {
+                    alert('删除用户请求失败: ' + (error.message || '未知错误'));
+                  }
+                }
+              });
+            });
+            
+            // 添加"添加用户"按钮事件
+            document.getElementById('add-user-btn').addEventListener('click', () => {
+              showAddUserModal();
+            });
+          } else {
+            usersList.innerHTML = '<p>暂无用户数据</p>';
+          }
+        })
+        .catch(error => {
+          document.getElementById('users-list').innerHTML = `<p style="color:#d93025">加载用户列表失败: ${error.message}</p>`;
+        });
+      
+      // 处理修改密码表单提交
+      const changePasswordForm = document.getElementById('change-password-form');
+      const passwordMessage = document.getElementById('password-message');
+      
+      changePasswordForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const currentPassword = document.getElementById('current-password').value;
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        
+        // 清空消息
+        passwordMessage.textContent = '';
+        passwordMessage.style.color = '#1a73e8';
+        
+        // 验证表单
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          passwordMessage.textContent = '所有字段都必须填写';
+          passwordMessage.style.color = '#d93025';
+          return;
+        }
+        
+        if (newPassword !== confirmPassword) {
+          passwordMessage.textContent = '两次输入的新密码不匹配';
+          passwordMessage.style.color = '#d93025';
+          return;
+        }
+        
+        // 提交API请求修改密码
+        try {
+          const response = await fetchApi('/admin/users/change-my-password', {
+            method: 'POST',
+            body: JSON.stringify({
+              oldPassword: currentPassword,
+              newPassword: newPassword
+            })
+          });
+          
+          if (response.success) {
+            passwordMessage.textContent = '密码修改成功';
+            passwordMessage.style.color = '#0f9d58';
+            changePasswordForm.reset();
+          } else {
+            passwordMessage.textContent = response.message || response.error || '密码修改失败';
+            passwordMessage.style.color = '#d93025';
+          }
+        } catch (error) {
+          passwordMessage.textContent = '请求失败: ' + (error.message || '未知错误');
+          passwordMessage.style.color = '#d93025';
+        }
+      });
+      
+      // 创建模态框容器(如果不存在)
+      if (!document.getElementById('modal-container')) {
+        const modalContainer = document.createElement('div');
+        modalContainer.id = 'modal-container';
+        modalContainer.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center;';
+        document.body.appendChild(modalContainer);
+      }
+    }
+    
+    // 显示修改其他用户密码的模态框
+    function showChangePasswordModal(username) {
+      const modalContainer = document.getElementById('modal-container');
+      modalContainer.style.display = 'flex';
+      
+      modalContainer.innerHTML = `
+        <div style="background:white;border-radius:5px;width:400px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.2)">
+          <h2 style="margin-top:0;font-size:18px;color:#1a73e8">修改用户 ${username} 的密码</h2>
+          <form id="admin-change-password-form">
+            <div style="margin-bottom:15px">
+              <label style="display:block;margin-bottom:5px;font-weight:bold">新密码</label>
+              <input type="password" id="admin-new-password" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+              <button type="button" id="modal-close-btn" style="background:none;border:1px solid #ccc;border-radius:4px;padding:8px 15px;cursor:pointer">取消</button>
+              <button type="submit" style="background:#1a73e8;color:white;border:none;border-radius:4px;padding:8px 15px;cursor:pointer">保存</button>
+            </div>
+          </form>
+          <div id="admin-password-message" style="margin-top:10px;text-align:center;color:#1a73e8;font-weight:bold"></div>
+        </div>
+      `;
+      
+      // 关闭模态框按钮
+      document.getElementById('modal-close-btn').addEventListener('click', () => {
+        modalContainer.style.display = 'none';
+      });
+      
+      // 处理表单提交
+      document.getElementById('admin-change-password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const newPassword = document.getElementById('admin-new-password').value;
+        const messageElement = document.getElementById('admin-password-message');
+        
+        if (!newPassword) {
+          messageElement.textContent = '请输入新密码';
+          messageElement.style.color = '#d93025';
+          return;
+        }
+        
+        try {
+          const response = await fetchApi('/admin/users/change-password', {
+            method: 'POST',
+            body: JSON.stringify({
+              username: username,
+              newPassword: newPassword
+            })
+          });
+          
+          if (response.success) {
+            messageElement.textContent = '密码修改成功';
+            messageElement.style.color = '#0f9d58';
+            setTimeout(() => {
+              modalContainer.style.display = 'none';
+            }, 1500);
+          } else {
+            messageElement.textContent = response.message || response.error || '密码修改失败';
+            messageElement.style.color = '#d93025';
+          }
+        } catch (error) {
+          messageElement.textContent = '请求失败: ' + (error.message || '未知错误');
+          messageElement.style.color = '#d93025';
+        }
+      });
+    }
+    
+    // 显示添加新用户的模态框
+    function showAddUserModal() {
+      const modalContainer = document.getElementById('modal-container');
+      modalContainer.style.display = 'flex';
+      
+      modalContainer.innerHTML = `
+        <div style="background:white;border-radius:5px;width:400px;padding:20px;box-shadow:0 2px 10px rgba(0,0,0,0.2)">
+          <h2 style="margin-top:0;font-size:18px;color:#1a73e8">添加新用户</h2>
+          <form id="add-user-form">
+            <div style="margin-bottom:15px">
+              <label style="display:block;margin-bottom:5px;font-weight:bold">用户名</label>
+              <input type="text" id="add-username" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:15px">
+              <label style="display:block;margin-bottom:5px;font-weight:bold">密码</label>
+              <input type="password" id="add-password" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+            </div>
+            <div style="margin-bottom:15px">
+              <label style="display:block;margin-bottom:5px;font-weight:bold">角色</label>
+              <select id="add-role" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+                <option value="user">普通用户</option>
+                <option value="admin">管理员</option>
+              </select>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+              <button type="button" id="modal-close-btn" style="background:none;border:1px solid #ccc;border-radius:4px;padding:8px 15px;cursor:pointer">取消</button>
+              <button type="submit" style="background:#1a73e8;color:white;border:none;border-radius:4px;padding:8px 15px;cursor:pointer">添加</button>
+            </div>
+          </form>
+          <div id="add-user-message" style="margin-top:10px;text-align:center;color:#1a73e8;font-weight:bold"></div>
+        </div>
+      `;
+      
+      // 关闭模态框按钮
+      document.getElementById('modal-close-btn').addEventListener('click', () => {
+        modalContainer.style.display = 'none';
+      });
+      
+      // 处理表单提交
+      document.getElementById('add-user-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const username = document.getElementById('add-username').value;
+        const password = document.getElementById('add-password').value;
+        const role = document.getElementById('add-role').value;
+        const messageElement = document.getElementById('add-user-message');
+        
+        if (!username || !password) {
+          messageElement.textContent = '用户名和密码不能为空';
+          messageElement.style.color = '#d93025';
+          return;
+        }
+        
+        try {
+          const response = await fetchApi('/admin/users/add', {
+            method: 'POST',
+            body: JSON.stringify({
+              username,
+              password,
+              role
+            })
+          });
+          
+          if (response.success) {
+            messageElement.textContent = '用户添加成功';
+            messageElement.style.color = '#0f9d58';
+            setTimeout(() => {
+              modalContainer.style.display = 'none';
+              loadUsersData(); // 重新加载用户列表
+            }, 1500);
+          } else {
+            messageElement.textContent = response.message || response.error || '添加用户失败';
+            messageElement.style.color = '#d93025';
+          }
+        } catch (error) {
+          messageElement.textContent = '请求失败: ' + (error.message || '未知错误');
+          messageElement.style.color = '#d93025';
+        }
+      });
+    }
+
+    // 显示刷新动画
+    function showRefreshAnimation(elementId) {
+      const element = document.getElementById(elementId);
+      if (!element) return;
+      
+      // 移除之前的动画，并添加新的动画
+      element.classList.remove('refresh-animation');
+      // 这个技巧会强制浏览器重新应用动画
+      void element.offsetWidth;
+      element.classList.add('refresh-animation');
+    }
+
+    // 加载热门仓库数据
+    function loadTopRepos() {
+      const reposStats = document.getElementById('repos-stats');
+      
+      // 显示刷新动画
+      showRefreshAnimation('repos-stats');
+      
+      // 获取性能数据中的仓库访问统计
+      fetchApi('/admin/performance')
+        .then(data => {
+          // 检查仓库数据是否存在
+          if (!data) {
+            reposStats.innerHTML = '<p style="text-align:center">数据加载失败，请刷新页面重试</p>';
+            return;
+          }
+          
+          // 确保repositoryStats为数组
+          let repoData = [];
+          if (!data.repositoryStats) {
+            repoData = [];
+          } else if (!Array.isArray(data.repositoryStats)) {
+            try {
+              // 尝试将对象转换为数组
+              if (typeof data.repositoryStats === 'object') {
+                repoData = Object.entries(data.repositoryStats).map(([repo, stats]) => ({
+                  repository: repo,
+                  requestsCount: stats && typeof stats === 'object' ? (stats.requestsCount || 0) : 0,
+                  averageResponseTime: stats && typeof stats === 'object' ? 
+                    (typeof stats.averageResponseTime === 'string' ? 
+                      stats.averageResponseTime : 
+                      formatDuration(stats.averageResponseTime || 0)) 
+                    : '0ms'
+                }));
+              } else {
+                repoData = [];
+              }
+            } catch (e) {
+              repoData = [];
+            }
+          } else {
+            // 数据已经是数组，直接使用
+            repoData = data.repositoryStats;
+          }
+          
+          // 添加额外的检查：确保repoData是有效数组
+          if (!Array.isArray(repoData)) {
+            repoData = [];
+          } else if (repoData.some(item => typeof item !== 'object' || !item)) {
+            repoData = repoData.filter(item => typeof item === 'object' && item);
+          }
+          
+          if (repoData.length === 0) {
+            // 如果没有数据，提示用户需要访问仓库才能生成统计数据
+            reposStats.innerHTML = `
+              <div style="text-align:center;padding:15px;">
+                <p>暂无仓库访问数据</p>
+                <p style="font-size:13px;color:#666;margin-top:10px;">
+                  请通过此代理访问GitHub仓库以生成统计数据
+                </p>
+              </div>`;
+            return;
+          }
+          
+          // 构建表格
+          let html = `
+            <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+              <thead>
+                <tr style="background:#f5f5f5">
+                  <th style="padding:8px;text-align:left;border-bottom:1px solid #ddd">仓库名称</th>
+                  <th style="padding:8px;text-align:center;border-bottom:1px solid #ddd">访问次数</th>
+                  <th style="padding:8px;text-align:right;border-bottom:1px solid #ddd">平均响应时间</th>
+                </tr>
+              </thead>
+              <tbody>
+            `;
+            
+            // 添加仓库行
+            repoData.slice(0, 5).forEach(repo => {
+              html += `
+                <tr>
+                  <td style="padding:8px;border-bottom:1px solid #eee;font-weight:bold">${repo.repository || '未知仓库'}</td>
+                  <td style="padding:8px;border-bottom:1px solid #eee;text-align:center">${repo.requestsCount || 0}</td>
+                  <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${repo.averageResponseTime || '0ms'}</td>
+                </tr>
+              `;
+            });
+            
+            html += `
+              </tbody>
+            </table>
+          `;
+          
+          // 添加查看更多链接
+          if (repoData.length > 5) {
+            html += `<p style="text-align:right;margin:0;font-size:12px">
+              <a href="#" onclick="event.preventDefault(); document.querySelector('[data-tab=performance]').click();" 
+                 style="color:#1a73e8;text-decoration:none">
+                查看更多仓库 (${repoData.length}) »
+              </a>
+            </p>`;
+          }
+          
+          reposStats.innerHTML = html;
+        })
+        .catch(error => {
+          console.error('加载热门仓库失败:', error);
+          reposStats.innerHTML = `
+            <div style="text-align:center;padding:15px;">
+              <p style="color:#d93025">加载失败: ${error.message || '未知错误'}</p>
+            </div>`;
+        });
+    }
+
+    // 格式化持续时间函数，与后端保持一致
+    function formatDuration(ms) {
+      if (typeof ms !== 'number') return '0ms';
+      if (ms < 1000) return `${ms}ms`;
+      if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+      if (ms < 3600000) return `${(ms / 60000).toFixed(2)}min`;
+      return `${(ms / 3600000).toFixed(2)}h`;
+    }
+
+    // 更新卡片刷新状态显示
+    function updateCardRefreshStatus() {
+      const cards = document.querySelectorAll('.card');
+      cards.forEach(card => {
+        const statusElem = card.querySelector('.auto-refresh-status');
+        if (statusElem) {
+          const cardType = card.getAttribute('data-type');
+          if (cardType && autoRefreshIntervals[cardType]) {
+            const seconds = autoRefreshIntervals[cardType] / 1000;
+            statusElem.textContent = autoRefreshEnabled ? 
+              `自动刷新: ${seconds}秒` : 
+              `自动刷新: 已暂停`;
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html> 
