@@ -114,6 +114,9 @@ const processResponseHeaders = (headers, req) => {
 const extractRepoFromApiUrl = (url) => {
   if (!url.startsWith('/api/')) return null;
   
+  // 排除私有API路径
+  if (url.includes('/_private')) return null;
+  
   // 尝试匹配 /api/repos/{owner}/{repo} 模式
   const repoMatch = url.match(/^\/api\/repos\/([^\/]+)\/([^\/]+)/);
   if (repoMatch) {
@@ -182,8 +185,11 @@ const extractRepoFromUrl = (url) => {
   const match = url.match(/\/([^\/]+\/[^\/]+)(\/|$)/);
   if (match && match[1]) {
     const repoPath = match[1];
-    // 排除非仓库路径，如 /assets/js 或 /admin/api
-    if (!repoPath.includes('.') && !repoPath.includes('admin') && repoPath.includes('/')) {
+    // 排除非仓库路径，如 /assets/js 或 /admin/api 或 api/_private
+    if (!repoPath.includes('.') && 
+        !repoPath.includes('admin') && 
+        !repoPath.includes('_private') && 
+        repoPath.includes('/')) {
       return repoPath;
     }
   }
@@ -191,14 +197,83 @@ const extractRepoFromUrl = (url) => {
 };
 
 // 记录代理请求
-const recordProxyRequest = (url, success, statusCode = 200, responseTime = 0) => {
-  const repoPath = extractRepoFromUrl(url);
+const recordProxyRequest = (req, startTime, statusCode, repository = '') => {
+  const responseTime = Date.now() - startTime;
   
-  // 调用管理模块的记录请求函数
-  admin.recordRequest(url, success, statusCode, responseTime);
+  // 初始化全局性能数据对象（如果不存在）
+  if (!global.performanceData) {
+    global.performanceData = {
+      startTime: Date.now(),
+      requestsProcessed: 0,
+      totalResponseTime: 0,
+      averageResponseTime: 0,
+      slowRequests: [],
+      errors: 0,
+      pathStats: {},
+      repositoryStats: {}
+    };
+  }
+
+  // 更新全局计数器
+  global.performanceData.requestsProcessed++;
+  global.performanceData.totalResponseTime += responseTime;
+  global.performanceData.averageResponseTime = 
+    global.performanceData.totalResponseTime / global.performanceData.requestsProcessed;
+
+  // 如果状态码表示错误（400以上），计入错误统计
+  if (statusCode >= 400) {
+    global.performanceData.errors++;
+  }
+
+  // 记录路径统计
+  const path = req.url.split('?')[0]; // 移除查询参数
+  if (!global.performanceData.pathStats[path]) {
+    global.performanceData.pathStats[path] = {
+      count: 0,
+      totalResponseTime: 0,
+      averageResponseTime: 0
+    };
+  }
   
-  // 记录到性能统计
-  adminApi.recordPerformanceDataPoint(url || '', responseTime, statusCode, 0);
+  global.performanceData.pathStats[path].count++;
+  global.performanceData.pathStats[path].totalResponseTime += responseTime;
+  global.performanceData.pathStats[path].averageResponseTime = 
+    global.performanceData.pathStats[path].totalResponseTime / global.performanceData.pathStats[path].count;
+  
+  // 更新慢请求列表
+  if (responseTime > 500 || global.performanceData.slowRequests.length < 10) {
+    const slowRequest = {
+      path: req.url,
+      responseTime,
+      timestamp: new Date().toISOString(),
+      statusCode
+    };
+    
+    global.performanceData.slowRequests.push(slowRequest);
+    global.performanceData.slowRequests.sort((a, b) => b.responseTime - a.responseTime);
+    
+    // 保持列表在限定大小内
+    if (global.performanceData.slowRequests.length > 10) {
+      global.performanceData.slowRequests.pop();
+    }
+  }
+  
+  // 记录仓库统计（如果提供了仓库信息）
+  if (repository && repository.includes('/')) {
+    if (!global.performanceData.repositoryStats[repository]) {
+      global.performanceData.repositoryStats[repository] = {
+        requestsCount: 0,
+        totalResponseTime: 0,
+        averageResponseTime: 0
+      };
+    }
+    
+    global.performanceData.repositoryStats[repository].requestsCount++;
+    global.performanceData.repositoryStats[repository].totalResponseTime += responseTime;
+    global.performanceData.repositoryStats[repository].averageResponseTime = 
+      global.performanceData.repositoryStats[repository].totalResponseTime / 
+      global.performanceData.repositoryStats[repository].requestsCount;
+  }
 };
 
 // 处理GitHub API请求
@@ -262,36 +337,12 @@ const handleApiRequest = async (req, res) => {
         
         res.statusCode = response.status;
         res.end(body);
-        recordProxyRequest(req.url, true);
-        
-        // 记录性能数据
-        const responseTime = Date.now() - startTime;
-        const originalUrl = req.url;
-        
-        // 获取响应大小，避免使用JSON.stringify
-        const responseSize = Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body || '');
-        
-        // 记录性能数据点
-        adminApi.recordPerformanceDataPoint(originalUrl, responseTime, response.status, responseSize);
-        
-        // 从URL中提取仓库信息
-        const repoPath = extractRepoFromUrl(originalUrl);
-        if (repoPath) {
-          console.log(`记录仓库访问: ${repoPath}`);
-          // 单独记录仓库统计
-          const repoUrl = `/${repoPath}`;
-          adminApi.recordPerformanceDataPoint(repoUrl, responseTime, response.status, 0);
-        }
+        recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
       })
       .catch(error => {
         console.error('API代理错误:', error.message);
         handleError(error, req, res);
-        recordProxyRequest(req.url, false);
-        
-        // 记录错误性能数据
-        const responseTime = Date.now() - startTime;
-        const statusCode = error.response?.status || 500;
-        adminApi.recordPerformanceDataPoint(originalUrl, responseTime, statusCode, 0);
+        recordProxyRequest(req, startTime, error.response?.status || 500, extractRepoFromUrl(req.url));
       });
   }
 };
@@ -320,36 +371,12 @@ const handleRawRequest = (req, res) => {
     
     res.statusCode = response.status;
     res.end(response.data);
-    recordProxyRequest(req.url, true);
-    
-    // 记录性能数据
-    const responseTime = Date.now() - startTime;
-    const originalUrl = req.url;
-    
-    // 获取响应大小，避免使用JSON.stringify
-    const responseSize = Buffer.isBuffer(response.data) ? response.data.length : 0;
-    
-    // 记录性能数据点
-    adminApi.recordPerformanceDataPoint(originalUrl, responseTime, response.status, responseSize);
-    
-    // 从URL中提取仓库信息
-    const repoPath = extractRepoFromUrl(originalUrl);
-    if (repoPath) {
-      console.log(`记录仓库访问: ${repoPath}`);
-      // 单独记录仓库统计
-      const repoUrl = `/${repoPath}`;
-      adminApi.recordPerformanceDataPoint(repoUrl, responseTime, response.status, 0);
-    }
+    recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
   })
   .catch(error => {
     console.error('Raw内容代理错误:', error.message);
     handleError(error, req, res);
-    recordProxyRequest(req.url, false);
-    
-    // 记录错误性能数据
-    const responseTime = Date.now() - startTime;
-    const statusCode = error.response?.status || 500;
-    adminApi.recordPerformanceDataPoint(req.url, responseTime, statusCode, 0);
+    recordProxyRequest(req, startTime, error.response?.status || 500, extractRepoFromUrl(req.url));
   });
 };
 
@@ -380,41 +407,16 @@ const handleReleaseRequest = (req, res) => {
       
       // 流式传输
       response.data.pipe(res);
-      recordProxyRequest(req.url, true);
-      
-      // 记录性能数据
-      const responseTime = Date.now() - startTime;
-      const originalUrl = req.url;
-      
-      // 记录性能数据点
-      adminApi.recordPerformanceDataPoint(originalUrl, responseTime, response.status, 0);
-      
-      // 从URL中提取仓库信息
-      const repoPath = extractRepoFromUrl(originalUrl);
-      if (repoPath && repoPath.includes('/')) {
-        console.log(`记录仓库访问: ${repoPath}`);
-        // 单独记录仓库统计
-        const repoUrl = `/${repoPath}`;
-        adminApi.recordPerformanceDataPoint(repoUrl, responseTime, response.status, 0);
-      }
+      recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
     })
     .catch(error => {
       console.error('Release文件代理错误:', error.message);
       handleError(error, req, res);
-      recordProxyRequest(req.url, false);
-      
-      // 记录错误性能数据
-      const responseTime = Date.now() - startTime;
-      const statusCode = error.response?.status || 500;
-      adminApi.recordPerformanceDataPoint(req.url, responseTime, statusCode, 0);
+      recordProxyRequest(req, startTime, error.response?.status || 500, extractRepoFromUrl(req.url));
     });
   } catch (error) {
     handleError(error, req, res);
-    recordProxyRequest(req.url, false);
-    
-    // 记录严重错误性能数据
-    const responseTime = Date.now() - startTime;
-    adminApi.recordPerformanceDataPoint(req.url, responseTime, 500, 0);
+    recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
   }
 };
 
@@ -442,21 +444,12 @@ const handleAssetsRequest = (req, res) => {
     
     res.statusCode = response.status;
     res.end(response.data);
-    recordProxyRequest(req.url, true);
-    
-    // 记录性能数据
-    const responseTime = Date.now() - startTime;
-    const originalUrl = req.url;
-    adminApi.recordPerformanceDataPoint(originalUrl, responseTime, response.status, Buffer.byteLength(JSON.stringify(response.data) || ''));
+    recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
   })
   .catch(error => {
     console.error('资源代理错误:', error.message);
     handleError(error, req, res);
-    recordProxyRequest(req.url, false);
-    
-    // 记录严重错误性能数据
-    const responseTime = Date.now() - startTime;
-    adminApi.recordPerformanceDataPoint(req.url, responseTime, 500, 0);
+    recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
   });
 };
 
@@ -487,30 +480,16 @@ const handleCodeloadRequest = (req, res) => {
       
       // 流式传输
       response.data.pipe(res);
-      recordProxyRequest(req.url, true);
-      
-      // 记录性能数据
-      const responseTime = Date.now() - startTime;
-      const originalUrl = req.url;
-      adminApi.recordPerformanceDataPoint(originalUrl, responseTime, response.status, Buffer.byteLength(JSON.stringify(response.data) || ''));
+      recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
     })
     .catch(error => {
       console.error('代码下载代理错误:', error.message);
       handleError(error, req, res);
-      recordProxyRequest(req.url, false);
-      
-      // 记录错误性能数据
-      const responseTime = Date.now() - startTime;
-      const statusCode = error.response?.status || 500;
-      adminApi.recordPerformanceDataPoint(req.url, responseTime, statusCode, 0);
+      recordProxyRequest(req, startTime, error.response?.status || 500, extractRepoFromUrl(req.url));
     });
   } catch (error) {
     handleError(error, req, res);
-    recordProxyRequest(req.url, false);
-    
-    // 记录严重错误性能数据
-    const responseTime = Date.now() - startTime;
-    adminApi.recordPerformanceDataPoint(req.url, responseTime, 500, 0);
+    recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
   }
 };
 
@@ -521,7 +500,7 @@ const handleGithubRequest = async (req, res) => {
     // 首页重定向到自定义主页
     if (req.url === '/' || req.url === '') {
       serveCustomPage(config.customPages.homePath, res);
-      recordProxyRequest(req.url, true);
+      recordProxyRequest(req, startTime, 200, null);
       return;
     }
     
@@ -559,7 +538,7 @@ const handleGithubRequest = async (req, res) => {
           if(response.status === 404){
             console.log(`收到GitHub 404响应，使用自定义404页面: ${req.url}`);
             serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
-            recordProxyRequest(req.url, false);
+            recordProxyRequest(req, startTime, 404, null);
             return;
           }
           
@@ -591,26 +570,7 @@ const handleGithubRequest = async (req, res) => {
           
           res.statusCode = response.status;
           res.end(Buffer.isBuffer(body) ? body : Buffer.from(body));
-          recordProxyRequest(req.url, true);
-          
-          // 记录性能数据
-          const responseTime = Date.now() - startTime;
-          const originalUrl = req.url;
-          
-          // 获取响应大小，避免使用JSON.stringify
-          const responseSize = Buffer.isBuffer(body) ? body.length : Buffer.byteLength(body || '');
-          
-          // 记录性能数据点
-          adminApi.recordPerformanceDataPoint(originalUrl, responseTime, response.status, responseSize);
-          
-          // 从URL中提取仓库信息
-          const repoPath = extractRepoFromUrl(originalUrl);
-          if (repoPath) {
-            console.log(`记录仓库访问: ${repoPath}`);
-            // 单独记录仓库统计
-            const repoUrl = `/${repoPath}`;
-            adminApi.recordPerformanceDataPoint(repoUrl, responseTime, response.status, 0);
-          }
+          recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
         })
         .catch(error => {
           console.error('GitHub代理错误:', error.message);
@@ -619,26 +579,17 @@ const handleGithubRequest = async (req, res) => {
           if(error.response && error.response.status === 404){
             console.log(`捕获到404错误，使用自定义404页面: ${req.url}`);
             serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
-            recordProxyRequest(req.url, false);
+            recordProxyRequest(req, startTime, 404, null);
             return;
           }
           
           handleError(error, req, res);
-          recordProxyRequest(req.url, false);
-          
-          // 记录错误性能数据
-          const responseTime = Date.now() - startTime;
-          const statusCode = error.response?.status || 500;
-          adminApi.recordPerformanceDataPoint(req.url, responseTime, statusCode, 0);
+          recordProxyRequest(req, startTime, error.response?.status || 500, null);
         });
     }
   } catch (error) {
     handleError(error, req, res);
-    recordProxyRequest(req.url, false);
-    
-    // 记录严重错误性能数据
-    const responseTime = Date.now() - startTime;
-    adminApi.recordPerformanceDataPoint(req.url, responseTime, 500, 0);
+    recordProxyRequest(req, startTime, 500, null);
   }
 };
 
@@ -648,7 +599,7 @@ const route = (req, res) => {
     // 检查黑名单
     if (shouldBlockRequest(req)) {
       sendBlockedResponse(res, req);
-      recordProxyRequest(req.url, false);
+      recordProxyRequest(req, Date.now(), 403, null);
       return;
     }
   
@@ -674,7 +625,7 @@ const route = (req, res) => {
   } catch (error) {
     console.error('路由处理错误:', error);
     handleError(error, req, res);
-    recordProxyRequest(req.url, false);
+    recordProxyRequest(req, Date.now(), 500, null);
   }
 };
 

@@ -38,12 +38,6 @@ const performanceData = {
   repositoryStats: {} // 添加仓库统计对象
 };
 
-// 添加初始示例数据，方便用户理解数据格式
-(function initSampleData() {
-  // 初始化性能数据时不再添加示例数据
-  console.log('初始化性能数据...');
-})();
-
 // 记录访问日志
 const logAccess=(req,status=200)=>{
   const time=new Date().toISOString();
@@ -458,221 +452,143 @@ const formatDuration = (ms) => {
   return `${(ms / 3600000).toFixed(2)}h`;
 };
 
-// 记录性能数据点
-const recordPerformanceDataPoint = (path, responseTime, statusCode, size) => {
-  try {
-    // 确保参数有效
-    if (typeof path !== 'string') path = String(path || '');
-    if (typeof responseTime !== 'number' || isNaN(responseTime)) responseTime = 0;
-    if (typeof statusCode !== 'number' || isNaN(statusCode)) statusCode = 200;
-    if (typeof size !== 'number' || isNaN(size)) size = 0;
-    
-    // 确保performanceData的基本属性已初始化
-    if (!performanceData || typeof performanceData !== 'object') {
-      console.error('性能数据对象不存在或无效，重新初始化');
-      performanceData = {
-        startTime: Date.now(),
-        requestsProcessed: 0,
-        averageResponseTime: 0,
-        totalResponseTime: 0,
-        slowRequests: [],
-        errors: 0,
-        pathStats: {},
-        repositoryStats: {}
-      };
-    }
-    
-    if (typeof performanceData.requestsProcessed !== 'number') performanceData.requestsProcessed = 0;
-    if (typeof performanceData.totalResponseTime !== 'number') performanceData.totalResponseTime = 0;
-    if (typeof performanceData.averageResponseTime !== 'number') performanceData.averageResponseTime = 0;
-    if (!Array.isArray(performanceData.slowRequests)) performanceData.slowRequests = [];
-    if (typeof performanceData.errors !== 'number') performanceData.errors = 0;
-    if (!performanceData.pathStats || typeof performanceData.pathStats !== 'object') performanceData.pathStats = {};
-    if (!performanceData.repositoryStats || typeof performanceData.repositoryStats !== 'object') performanceData.repositoryStats = {};
-
-    // 更新基本统计信息
-    performanceData.requestsProcessed++;
-    
-    // 更新平均响应时间
-    performanceData.totalResponseTime += responseTime;
-    performanceData.averageResponseTime = performanceData.totalResponseTime / performanceData.requestsProcessed;
-    
-    // 记录慢请求
-    if (responseTime > 1000) {
-      performanceData.slowRequests.push({
-        path,
-        responseTime,
-        timestamp: new Date().toISOString()
-      });
-      // 保持数组在限定大小内
-      if (performanceData.slowRequests.length > 100) {
-        performanceData.slowRequests.shift();
-      }
-    }
-
-    // 记录错误
-    if (statusCode >= 400) {
-      performanceData.errors++;
-    }
-
-    // 更新路径统计
-    try {
-      if (!performanceData.pathStats[path]) {
-        performanceData.pathStats[path] = {
-          requestsCount: 0,
-          totalResponseTime: 0,
-          averageResponseTime: 0,
-          totalSize: 0,
-          averageSize: 0
-        };
-      }
-      
-      // 尝试从路径中提取仓库信息
-      const repoMatch = path.match(/\/([^\/]+\/[^\/]+)(\/|$)/);
-      if (repoMatch && repoMatch[1]) {
-        const repoPath = repoMatch[1];
-        // 排除非仓库路径
-        if (!repoPath.includes('.') && !repoPath.includes('admin') && repoPath.includes('/')) {
-          if (!performanceData.repositoryStats[repoPath]) {
-            performanceData.repositoryStats[repoPath] = {
-              requestsCount: 0,
-              totalResponseTime: 0,
-              averageResponseTime: 0
-            };
-          }
-          
-          // 确保仓库统计对象有效
-          if (typeof performanceData.repositoryStats[repoPath] !== 'object') {
-            performanceData.repositoryStats[repoPath] = {
-              requestsCount: 0,
-              totalResponseTime: 0,
-              averageResponseTime: 0
-            };
-          }
-          
-          // 更新仓库统计
-          const repoStat = performanceData.repositoryStats[repoPath];
-          repoStat.requestsCount = (repoStat.requestsCount || 0) + 1;
-          repoStat.totalResponseTime = (repoStat.totalResponseTime || 0) + responseTime;
-          repoStat.averageResponseTime = repoStat.totalResponseTime / repoStat.requestsCount;
-        }
-      }
-      
-      // 更新路径统计
-      const pathStat = performanceData.pathStats[path];
-      if (pathStat && typeof pathStat === 'object') {
-        pathStat.requestsCount = (pathStat.requestsCount || 0) + 1;
-        pathStat.totalResponseTime = (pathStat.totalResponseTime || 0) + responseTime;
-        pathStat.averageResponseTime = pathStat.totalResponseTime / pathStat.requestsCount;
-        pathStat.totalSize = (pathStat.totalSize || 0) + size;
-        pathStat.averageSize = pathStat.totalSize / pathStat.requestsCount;
-      }
-    } catch (err) {
-      console.error('更新统计数据失败:', err.message, err.stack);
-    }
-  } catch (error) {
-    console.error('记录性能数据点失败:', error.message, error.stack);
+// 初始化全局性能数据，如果还不存在的话
+const initPerformanceData = () => {
+  if (!global.performanceData) {
+    global.performanceData = {
+      startTime: Date.now(),
+      requestsProcessed: 0,
+      averageResponseTime: 0,
+      totalResponseTime: 0,
+      slowRequests: [],
+      errors: 0,
+      pathStats: {},
+      repositoryStats: {}
+    };
   }
 };
 
-// 获取性能指标
-const getPerformanceMetrics = async () => {
-  // 获取系统信息
-  const os = require('os');
-  const startTime = process.uptime();
-  const memory = process.memoryUsage();
-  const cpuUsage = process.cpuUsage();
-  
-  // 计算CPU使用率
-  const cpuPercent = cpuUsage.user / (cpuUsage.user + cpuUsage.system) || 0;
-  
-  // 不再强制添加示例数据
-  if (!performanceData.repositoryStats || 
-      typeof performanceData.repositoryStats !== 'object') {
-    performanceData.repositoryStats = {};
-  }
-  
-  // 处理仓库统计数据 - 按请求量排序
-  const repoStats = performanceData.repositoryStats || {};
-  
-  // 确保仓库统计是有效的对象
-  let sortedRepoStats = [];
-  
-  try {
-    if (repoStats && typeof repoStats === 'object') {
-      sortedRepoStats = Object.entries(repoStats)
-        .map(([repo, stats]) => ({
-          repository: repo,
-          requestsCount: stats && typeof stats === 'object' ? (stats.requestsCount || 0) : 0,
-          averageResponseTime: stats && typeof stats === 'object' ? 
-            (typeof stats.averageResponseTime === 'string' ? 
-              stats.averageResponseTime : 
-              formatDuration(stats.averageResponseTime || 0)) : '0ms'
-        }))
-        .sort((a, b) => b.requestsCount - a.requestsCount)
-        .slice(0, 20); // 仅返回前20个最热门仓库
-    }
-  } catch (error) {
-    console.error('转换仓库统计失败:', error);
-    // 失败时提供空数组
-    sortedRepoStats = [];
-  }
-  
-  // 确保所有数据都有默认值，防止空对象导致前端错误
-  const result = {
-    uptime: formatDuration(startTime * 1000),
-    memory: {
-      rss: formatSize(memory.rss),
-      heapTotal: formatSize(memory.heapTotal),
-      heapUsed: formatSize(memory.heapUsed)
-    },
-    cpu: formatCpuUsage(cpuPercent),
-    system: {
-      platform: os.platform(),
-      arch: os.arch(),
-      cpus: os.cpus().length,
-      loadAvg: os.loadavg()
-    },
-    requestsProcessed: performanceData.requestsProcessed || 0,
-    averageResponseTime: formatDuration(performanceData.averageResponseTime || 0),
-    slowRequests: performanceData.slowRequests || [],
-    errors: performanceData.errors || 0,
-    pathStats: performanceData.pathStats 
-      ? Object.entries(performanceData.pathStats).map(([path, stats]) => ({
-          path,
-          requestsCount: stats.requestsCount || 0,
-          averageResponseTime: formatDuration(stats.averageResponseTime || 0),
-          averageSize: formatSize(stats.averageSize || 0)
-        })) 
-      : [],
-    repositoryStats: sortedRepoStats // 保证这是一个数组，即使是空数组
+// 重置性能数据
+const resetPerformanceData = () => {
+  initPerformanceData();
+  global.performanceData = {
+    startTime: Date.now(),
+    requestsProcessed: 0,
+    averageResponseTime: 0,
+    totalResponseTime: 0,
+    slowRequests: [],
+    errors: 0,
+    pathStats: {},
+    repositoryStats: {}
   };
+};
+
+// 获取性能指标
+const getPerformanceMetrics = () => {
+  initPerformanceData();
   
-  // 确保返回结果不会被序列化丢失数据
+  const currentData = { ...global.performanceData };
+  
+  // 计算运行时间（秒）
+  const uptime = Math.floor((Date.now() - currentData.startTime) / 1000);
+  
+  // 如果没有请求，避免除以零
+  const requestsPerSecond = uptime > 0 ? 
+    (currentData.requestsProcessed / uptime).toFixed(2) : 0;
+  
+  // 创建结构化数据进行返回
+  return {
+    uptime: uptime,
+    requestsProcessed: currentData.requestsProcessed,
+    requestsPerSecond: requestsPerSecond,
+    averageResponseTime: currentData.averageResponseTime.toFixed(2),
+    errors: currentData.errors,
+    slowestRequests: currentData.slowRequests,
+    pathStats: currentData.pathStats,
+    repositoryStats: currentData.repositoryStats || {}  // 确保返回仓库统计，即使为空对象
+  };
+};
+
+// 获取仓库统计信息
+const getRepositoryStats = () => {
+  if (!global.performanceData || !global.performanceData.repositoryStats) {
+    return [];
+  }
+  
   try {
-    // 测试能否正确序列化
-    const testJson = JSON.stringify(result);
-    if (!testJson || testJson === '{}' || testJson === '[]') {
-      console.error('序列化结果异常:', testJson);
-      // 返回基本数据结构，确保前端至少能收到数据
+    const repoStats = global.performanceData.repositoryStats;
+    
+    // 转换对象为数组格式
+    const statsArray = Object.keys(repoStats).map(repo => {
       return {
-        uptime: formatDuration(startTime * 1000),
-        requestsProcessed: performanceData.requestsProcessed || 0,
-        averageResponseTime: formatDuration(performanceData.averageResponseTime || 0),
-        repositoryStats: sortedRepoStats || [],
-        errors: performanceData.errors || 0
+        repository: repo,
+        requests: repoStats[repo].requestsCount || 0,
+        averageResponseTime: repoStats[repo].averageResponseTime?.toFixed(2) || 0
       };
+    });
+    
+    // 按请求量排序（从高到低）
+    return statsArray.sort((a, b) => b.requests - a.requests);
+  } catch (error) {
+    console.error('获取仓库统计时出错:', error);
+    return [];
+  }
+};
+
+// 记录请求性能数据点
+const recordPerformanceDataPoint = (path, responseTime, statusCode, responseSize) => {
+  initPerformanceData();
+
+  // 更新请求计数
+  global.performanceData.requestsProcessed++;
+  
+  // 更新总响应时间和平均响应时间
+  global.performanceData.totalResponseTime += responseTime;
+  global.performanceData.averageResponseTime = 
+    global.performanceData.totalResponseTime / global.performanceData.requestsProcessed;
+  
+  // 添加到慢请求列表（如果足够慢）
+  if (global.performanceData.slowRequests.length < 10 || 
+      responseTime > global.performanceData.slowRequests[global.performanceData.slowRequests.length - 1].responseTime) {
+    
+    const slowRequest = {
+      path: path,
+      responseTime: responseTime,
+      timestamp: new Date().toISOString(),
+      statusCode: statusCode
+    };
+    
+    // 添加请求
+    global.performanceData.slowRequests.push(slowRequest);
+    
+    // 按响应时间排序（从慢到快）
+    global.performanceData.slowRequests.sort((a, b) => b.responseTime - a.responseTime);
+    
+    // 保持最慢的10个请求
+    if (global.performanceData.slowRequests.length > 10) {
+      global.performanceData.slowRequests.pop();
     }
-  } catch (err) {
-    console.error('序列化性能数据失败:', err);
-    // 返回简单数据结构
-    return {
-      error: '数据序列化失败',
-      repositoryStats: []
+  }
+  
+  // 更新路径统计
+  const simplePath = path.split('?')[0]; // 忽略查询参数
+  if (!global.performanceData.pathStats[simplePath]) {
+    global.performanceData.pathStats[simplePath] = {
+      count: 0,
+      totalResponseTime: 0,
+      averageResponseTime: 0
     };
   }
   
-  return result;
+  global.performanceData.pathStats[simplePath].count++;
+  global.performanceData.pathStats[simplePath].totalResponseTime += responseTime;
+  global.performanceData.pathStats[simplePath].averageResponseTime = 
+    global.performanceData.pathStats[simplePath].totalResponseTime / global.performanceData.pathStats[simplePath].count;
+  
+  // 如果状态码表示错误，增加错误计数
+  if (statusCode >= 400) {
+    global.performanceData.errors++;
+  }
 };
 
 // 为性能数据收集注册钩子
@@ -696,27 +612,6 @@ const formatUptime=(seconds)=>{
   return`${days}天 ${hours}小时 ${minutes}分钟 ${secs}秒`;
 };
 
-// 重置性能数据
-const resetPerformanceData = () => {
-  performanceData.startTime = Date.now();
-  performanceData.requestsProcessed = 0;
-  performanceData.averageResponseTime = 0;
-  performanceData.totalResponseTime = 0;
-  performanceData.slowRequests = [];
-  performanceData.errors = 0;
-  performanceData.pathStats = {};
-  performanceData.repositoryStats = {};
-  
-  // 不再添加示例数据
-  console.log('性能数据已重置');
-  
-  return {
-    success: true,
-    message: '性能数据已重置',
-    timestamp: new Date().toISOString()
-  };
-};
-
 module.exports={
   logAccess,
   logError,
@@ -731,5 +626,6 @@ module.exports={
   importBlacklist,
   getPerformanceMetrics,
   recordPerformanceDataPoint,
-  resetPerformanceData
+  resetPerformanceData,
+  getRepositoryStats
 }; 

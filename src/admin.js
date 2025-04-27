@@ -983,7 +983,10 @@ const recordPathRequest = (path) => {
   if (repoMatch && repoMatch[1]) {
     const repoPath = repoMatch[1];
     // 排除非仓库路径
-    if (!repoPath.includes('.') && !repoPath.includes('admin') && repoPath.includes('/')) {
+    if (!repoPath.includes('.') && 
+        !repoPath.includes('admin') && 
+        !repoPath.includes('_private') && 
+        repoPath.includes('/')) {
       // 记录性能数据点，用0作为响应时间和状态码占位符
       adminApi.recordPerformanceDataPoint(path, 0, 200, 0);
     }

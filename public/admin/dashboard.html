@@ -29,6 +29,11 @@
     .tab-content.active{display:block}
     .loading{text-align:center;padding:20px}
     
+    /* 热门仓库卡片样式 */
+    .card[data-type="repos"] {
+      grid-column: span 2;
+    }
+    
     /* 添加刷新动画效果 */
     @keyframes refreshPulse {
       0% { background-color: rgba(0, 170, 255, 0); }
@@ -592,32 +597,6 @@
               </div>
             </div>`;
           
-          // 仓库请求统计表格
-          if (data.repositoryStats && data.repositoryStats.length > 0) {
-            html += `
-              <div class="card" style="margin-bottom:20px">
-                <h2 class="card-title">热门仓库请求统计</h2>
-                <table style="width:100%;border-collapse:collapse">
-                  <thead>
-                    <tr style="background:#f5f5f5">
-                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">仓库</th>
-                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">请求数量</th>
-                      <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">平均响应时间</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${data.repositoryStats.map(repo => `
-                      <tr>
-                        <td style="padding:10px;border-bottom:1px solid #eee">${repo.repository}</td>
-                        <td style="padding:10px;border-bottom:1px solid #eee">${repo.requestsCount}</td>
-                        <td style="padding:10px;border-bottom:1px solid #eee">${repo.averageResponseTime}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              </div>`;
-          }
-
           // 慢请求表格
           if (data.slowRequests && data.slowRequests.length > 0) {
             html += `
@@ -676,6 +655,25 @@
           
           // 为重置按钮添加事件监听
           document.getElementById('reset-performance')?.addEventListener('click', resetPerformanceData);
+          
+          // 处理仓库数据并更新热门仓库卡片
+          if (data.repositoryStats) {
+            let repoData = [];
+            if (Array.isArray(data.repositoryStats)) {
+              repoData = data.repositoryStats;
+            } else if (typeof data.repositoryStats === 'object') {
+              repoData = Object.entries(data.repositoryStats).map(([repo, stats]) => ({
+                repository: repo,
+                requestsCount: stats && typeof stats === 'object' ? (stats.requestsCount || 0) : 0,
+                averageResponseTime: stats && typeof stats === 'object' ? 
+                  (typeof stats.averageResponseTime === 'string' ? 
+                    stats.averageResponseTime : 
+                    formatDuration(stats.averageResponseTime || 0)) 
+                  : '0ms'
+              }));
+            }
+            updatePerformancePageRepos(repoData);
+          }
         })
         .catch(error => {
           performanceContent.innerHTML = `<p style="text-align:center;color:#d93025">加载性能数据失败: ${error.message}</p>`;
@@ -1462,6 +1460,8 @@
     function loadTopRepos() {
       const reposStats = document.getElementById('repos-stats');
       
+      if (!reposStats) return; // 如果没有找到元素，提前返回
+      
       // 显示刷新动画
       showRefreshAnimation('repos-stats');
       
@@ -1561,6 +1561,9 @@
           }
           
           reposStats.innerHTML = html;
+          
+          // 更新性能统计页面的热门仓库部分
+          updatePerformancePageRepos(repoData);
         })
         .catch(error => {
           console.error('加载热门仓库失败:', error);
@@ -1595,6 +1598,62 @@
           }
         }
       });
+    }
+
+    // 新增：更新性能统计页面上的热门仓库
+    function updatePerformancePageRepos(repoData) {
+      // 检查性能页面是否已加载
+      const performanceContent = document.getElementById('performance-content');
+      if (!performanceContent || !performanceContent.querySelector('.card')) return;
+      
+      // 查找性能页面上已有的仓库卡片
+      let repoCard = performanceContent.querySelector('.card[data-type="performance-repos"]');
+      
+      // 如果没有仓库卡片，则创建一个
+      if (!repoCard) {
+        const firstCard = performanceContent.querySelector('.card');
+        if (firstCard) {
+          repoCard = document.createElement('div');
+          repoCard.className = 'card';
+          repoCard.setAttribute('data-type', 'performance-repos');
+          repoCard.style.marginBottom = '20px';
+          firstCard.parentNode.insertBefore(repoCard, firstCard.nextSibling);
+        }
+      }
+      
+      if (repoCard) {
+        // 构建热门仓库内容
+        let html = `
+          <h2 class="card-title">热门仓库请求统计</h2>
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr style="background:#f5f5f5">
+                <th style="padding:10px;text-align:left;border-bottom:1px solid #ddd">仓库</th>
+                <th style="padding:10px;text-align:center;border-bottom:1px solid #ddd">请求数量</th>
+                <th style="padding:10px;text-align:right;border-bottom:1px solid #ddd">平均响应时间</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+        
+        // 在性能页面上显示全部仓库数据
+        repoData.forEach(repo => {
+          html += `
+            <tr>
+              <td style="padding:10px;border-bottom:1px solid #eee;font-weight:bold">${repo.repository}</td>
+              <td style="padding:10px;border-bottom:1px solid #eee;text-align:center">${repo.requestsCount}</td>
+              <td style="padding:10px;border-bottom:1px solid #eee;text-align:right">${repo.averageResponseTime}</td>
+            </tr>
+          `;
+        });
+        
+        html += `
+            </tbody>
+          </table>
+        `;
+        
+        repoCard.innerHTML = html;
+      }
     }
   </script>
 </body>
