@@ -41,8 +41,7 @@ const performanceData = {
 // 记录访问日志
 const logAccess=(req,status=200)=>{
   const time=new Date().toISOString();
-  const xForwardedFor=req.headers['x-forwarded-for'];
-  const ip=xForwardedFor?xForwardedFor.split(',')[0].trim():req.socket.remoteAddress;
+  const ip=req.headers['x-forwarded-for']||req.socket.remoteAddress;
   const ua=req.headers['user-agent']||'-';
   const method=req.method;
   const url=req.url;
@@ -57,8 +56,7 @@ const logAccess=(req,status=200)=>{
 // 记录错误日志
 const logError=(req,error)=>{
   const time=new Date().toISOString();
-  const xForwardedFor=req.headers['x-forwarded-for'];
-  const ip=xForwardedFor?xForwardedFor.split(',')[0].trim():req.socket.remoteAddress;
+  const ip=req.headers['x-forwarded-for']||req.socket.remoteAddress;
   const method=req.method;
   const url=req.url;
   
@@ -72,8 +70,7 @@ const logError=(req,error)=>{
 // 记录黑名单拦截日志
 const logBlocked=(req,repoPath)=>{
   const time=new Date().toISOString();
-  const xForwardedFor=req.headers['x-forwarded-for'];
-  const ip=xForwardedFor?xForwardedFor.split(',')[0].trim():req.socket.remoteAddress;
+  const ip=req.headers['x-forwarded-for']||req.socket.remoteAddress;
   const ua=req.headers['user-agent']||'-';
   const url=req.url;
   

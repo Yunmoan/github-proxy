@@ -1,6 +1,6 @@
 {
   "name": "github-proxy",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "GitHub反向代理加速服务",
   "main": "src/server.js",
   "scripts": {
@@ -33,23 +33,5 @@
     "acceleration"
   ],
   "author": "Your Name",
-  "license": "MIT",
-  "changelog": [
-    {
-      "version": "1.0.1",
-      "date": "2023-10-15",
-      "changes": [
-        "修复Nginx反代理获取用户真实IP逻辑，仅获取X-Forwarded-For中第一个IP地址",
-        "优化网络错误处理和自动重试机制",
-        "完善多种UA配置，避免GitHub API限制"
-      ]
-    },
-    {
-      "version": "1.0.0",
-      "date": "2023-10-01",
-      "changes": [
-        "初始版本发布"
-      ]
-    }
-  ]
+  "license": "MIT"
 }

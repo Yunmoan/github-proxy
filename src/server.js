@@ -104,8 +104,7 @@ const server = http.createServer((req, res) => {
     // 处理请求
     try {
       // 记录访问日志
-      const xForwardedFor = req.headers['x-forwarded-for'];
-      const clientIp = xForwardedFor ? xForwardedFor.split(',')[0].trim() : req.socket.remoteAddress;
+      const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
       console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} (${clientIp})`);
       
       // 检查黑名单

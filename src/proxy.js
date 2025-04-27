@@ -218,8 +218,7 @@ const sendBlockedResponse = (res, req) => {
   res.end(blockedResponse.body);
   
   // 记录日志
-  const xForwardedFor = req.headers['x-forwarded-for'];
-  const clientIp = xForwardedFor ? xForwardedFor.split(',')[0].trim() : req.socket.remoteAddress;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
   console.log(`[${new Date().toISOString()}] 阻止访问: ${req.url} (${clientIp})`);
 };
 
