@@ -206,10 +206,10 @@ http://your-domain.com/raw/username/repo/branch/path/to/file
 http://your-domain.com/api/repos/username/repo
 ```
 
-**下载Release文件**
+**访问Release内容**
 
 ```
-http://your-domain.com/releases/username/repo/releases/download/v1.0/file.zip
+http://your-domain.com/releases/username/repo/download/tag/file.zip
 ```
 
 ## 环境变量
@@ -305,3 +305,38 @@ docker run -p 3000:3000 github-proxy
 ## License
 
 MIT 
+
+## Linux系统优化
+
+为了解决在Linux系统下可能出现的网络错误（如"ECONNRESET: socket hang up"），我们进行了以下优化：
+
+### 连接优化
+1. **启用TCP保活**：自动设置socket保持连接，防止连接被过早关闭
+2. **增加重试机制**：对网络错误自动进行重试，减少临时网络问题的影响
+3. **禁用Nagle算法**：减少网络延迟，提高实时响应能力
+
+### 系统优化建议
+如果仍然遇到ECONNRESET错误，可以考虑修改Linux系统参数：
+
+```bash
+# 编辑sysctl配置文件
+sudo nano /etc/sysctl.conf
+
+# 添加或修改以下参数
+net.ipv4.tcp_keepalive_time = 600
+net.ipv4.tcp_keepalive_intvl = 60
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_fin_timeout = 30
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 4096
+net.ipv4.tcp_max_syn_backlog = 4096
+
+# 应用更改
+sudo sysctl -p
+```
+
+### 负载均衡器设置
+如果您使用负载均衡器，请确保：
+1. 增加超时设置（至少120秒）
+2. 启用保持连接功能
+3. 禁用任何可能导致连接过早关闭的规则 

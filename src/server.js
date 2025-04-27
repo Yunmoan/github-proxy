@@ -116,6 +116,23 @@ server.on('error', (err) => {
 // 设置保持连接超时
 server.keepAliveTimeout = 120 * 1000; // 2分钟
 server.headersTimeout = 60 * 1000; // 1分钟
+// 设置最大连接数
+server.maxConnections = 1000;
+// 设置TCP连接参数
+server.on('connection', socket => {
+  // 设置TCP保活
+  socket.setKeepAlive(true, 60000);
+  // 设置TCP超时
+  socket.setTimeout(120000);
+  // 禁用Nagle算法，提高响应速度
+  socket.setNoDelay(true);
+  
+  // 处理socket错误
+  socket.on('error', (err) => {
+    console.error('Socket错误:', err.message);
+    // 不主动关闭socket，让它自然超时
+  });
+});
 
 // 启动服务器
 server.listen(config.server.port, config.server.host, () => {

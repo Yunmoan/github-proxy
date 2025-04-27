@@ -21,7 +21,19 @@ axios.defaults.maxRedirects = 5; // 最大重定向次数
 const proxy = httpProxy.createProxyServer({
   changeOrigin: true,
   selfHandleResponse: true,
-  timeout: 60000 // 60秒超时
+  timeout: 60000, // 60秒超时
+  // 添加连接选项以防止ECONNRESET错误
+  proxyTimeout: 120000, // 120秒代理超时
+  xfwd: true, // 转发X-Forwarded头
+  secure: false, // 不验证SSL证书
+  agent: false, // 不使用默认agent
+  followRedirects: true, // 自动跟随重定向
+  // 自定义代理选项
+  buffer: {
+    maxSockets: 100,
+    keepAlive: true,
+    timeout: 60000
+  }
 });
 
 // 设置代理错误处理
