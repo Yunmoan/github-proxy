@@ -22,18 +22,8 @@ const proxy = httpProxy.createProxyServer({
   changeOrigin: true,
   selfHandleResponse: true,
   timeout: 60000, // 60秒超时
-  // 添加连接选项以防止ECONNRESET错误
-  proxyTimeout: 120000, // 120秒代理超时
-  xfwd: true, // 转发X-Forwarded头
-  secure: false, // 不验证SSL证书
-  agent: false, // 不使用默认agent
-  followRedirects: true, // 自动跟随重定向
-  // 自定义代理选项
-  buffer: {
-    maxSockets: 100,
-    keepAlive: true,
-    timeout: 60000
-  }
+  proxyTimeout: 60000, // 添加代理超时设置
+  socketTimeout: 90000 // 添加socket超时设置
 });
 
 // 设置代理错误处理
@@ -42,6 +32,47 @@ proxy.on('error', (err, req, res) => {
   handleError(err, req, res);
   recordProxyRequest(req.url, false);
 });
+
+// 常用User-Agent列表，随机选择以避免被封
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 GithubProxy/1.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 GithubProxy/1.0',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 GithubProxy/1.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/106.0.1370.47 Safari/537.36 GithubProxy/1.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:106.0) Gecko/20100101 Firefox/106.0 GithubProxy/1.0'
+];
+
+// 获取随机User-Agent
+const getRandomUserAgent = () => {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+};
+
+// 为请求添加必要的头信息(UA等)
+const addRequiredHeaders = (headers, targetHost) => {
+  const result = {...headers};
+  
+  // 确保有User-Agent
+  if(!result['user-agent'] && !result['User-Agent']) {
+    result['User-Agent'] = getRandomUserAgent();
+  }
+  
+  // 设置主机头
+  if(targetHost) {
+    result.host = targetHost;
+  }
+  
+  // 添加Accept头
+  if(!result['accept'] && !result['Accept']) {
+    result['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8';
+  }
+  
+  // 添加编码头
+  if(!result['accept-encoding'] && !result['Accept-Encoding']) {
+    result['Accept-Encoding'] = 'gzip, deflate, br';
+  }
+  
+  return result;
+};
 
 // 转换URL中的GitHub域名为目标域名
 const transformGithubUrl = (url, req) => {
@@ -187,7 +218,8 @@ const sendBlockedResponse = (res, req) => {
   res.end(blockedResponse.body);
   
   // 记录日志
-  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  const clientIp = xForwardedFor ? xForwardedFor.split(',')[0].trim() : req.socket.remoteAddress;
   console.log(`[${new Date().toISOString()}] 阻止访问: ${req.url} (${clientIp})`);
 };
 
@@ -293,12 +325,13 @@ const handleApiRequest = async (req, res) => {
   const startTime = Date.now();
   const targetPath = req.url.replace(/^\/api/, '');
   const targetUrl = `${config.github.apiUrl}${targetPath}`;
+  const targetHost = new URL(config.github.apiUrl).host;
   
   // 构建请求选项
   const options = {
     url: targetUrl,
     method: req.method,
-    headers: {...req.headers, host: new URL(config.github.apiUrl).host},
+    headers: addRequiredHeaders({...req.headers}, targetHost),
     responseType: 'arraybuffer',
     validateStatus: status => status < 500 // 允许400等错误自行处理
   };
@@ -364,11 +397,15 @@ const handleRawRequest = (req, res) => {
   const startTime = Date.now();
   const targetPath = req.url.replace(/^\/raw/, '');
   const targetUrl = `${config.github.rawUrl}${targetPath}`;
+  const targetHost = new URL(config.github.rawUrl).host;
   
   const cacheKey = `raw:${targetUrl}`;
   
   getOrSetCache(cacheKey, config.cache.staticMaxAge, () => 
-    axiosClient.default.get(targetUrl, { responseType: 'arraybuffer' })
+    axiosClient.default.get(targetUrl, { 
+      responseType: 'arraybuffer',
+      headers: addRequiredHeaders({...req.headers}, targetHost)
+    })
   )
   .then(response => {
     if(res.headersSent) return; // 确保没有发送过响应
@@ -398,11 +435,12 @@ const handleReleaseRequest = (req, res) => {
   try {
     const targetPath = req.url.replace(/^\/releases/, '');
     const targetUrl = `${config.github.releaseUrl}${targetPath}`;
+    const targetHost = new URL(config.github.releaseUrl).host;
     
     // 大文件使用专门的client
     axiosClient.largeFile.get(targetUrl, { 
       responseType: 'stream',
-      headers: {...req.headers, host: new URL(config.github.releaseUrl).host}
+      headers: addRequiredHeaders({...req.headers}, targetHost)
     })
     .then(response => {
       if(res.headersSent) return;
@@ -437,11 +475,15 @@ const handleAssetsRequest = (req, res) => {
   const startTime = Date.now();
   const targetPath = req.url.replace(/^\/assets/, '');
   const targetUrl = `${config.github.assetsUrl}${targetPath}`;
+  const targetHost = new URL(config.github.assetsUrl).host;
   
   const cacheKey = `assets:${targetUrl}`;
   
   getOrSetCache(cacheKey, config.cache.staticMaxAge, () => 
-    axiosClient.static.get(targetUrl, { responseType: 'arraybuffer' })
+    axiosClient.static.get(targetUrl, { 
+      responseType: 'arraybuffer',
+      headers: addRequiredHeaders({...req.headers}, targetHost)
+    })
   )
   .then(response => {
     if(res.headersSent) return; // 确保没有发送过响应
@@ -471,11 +513,12 @@ const handleCodeloadRequest = (req, res) => {
   try {
     const targetPath = req.url.replace(/^\/codeload/, '');
     const targetUrl = `${config.github.codeloadUrl}${targetPath}`;
+    const targetHost = new URL(config.github.codeloadUrl).host;
     
     // 大文件使用专门的client
     axiosClient.largeFile.get(targetUrl, { 
       responseType: 'stream',
-      headers: {...req.headers, host: new URL(config.github.codeloadUrl).host}
+      headers: addRequiredHeaders({...req.headers}, targetHost)
     })
     .then(response => {
       if(res.headersSent) return;
@@ -518,10 +561,12 @@ const handleGithubRequest = async (req, res) => {
     
     // 处理非主页的请求
     const targetUrl = `${config.github.baseUrl}${req.url}`;
+    const targetHost = new URL(config.github.baseUrl).host;
+    
     const options = {
       url: targetUrl,
       method: req.method,
-      headers: {...req.headers, host: new URL(config.github.baseUrl).host},
+      headers: addRequiredHeaders({...req.headers}, targetHost),
       responseType: 'arraybuffer',
       validateStatus: status => true, // 允许任何状态码，包括404等错误
       maxRedirects: 5

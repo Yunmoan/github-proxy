@@ -244,7 +244,8 @@ const formatBytes = (bytes) => {
 
 // 验证IP访问权限
 const isIPAllowed = (req) => {
-  const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  const xForwardedFor = req.headers['x-forwarded-for'];
+  const clientIP = xForwardedFor ? xForwardedFor.split(',')[0].trim() : req.socket.remoteAddress || '';
   return ALLOWED_IPS.includes('*') || ALLOWED_IPS.some(ip => clientIP.includes(ip));
 };
 

@@ -206,10 +206,10 @@ http://your-domain.com/raw/username/repo/branch/path/to/file
 http://your-domain.com/api/repos/username/repo
 ```
 
-**访问Release内容**
+**下载Release文件**
 
 ```
-http://your-domain.com/releases/username/repo/download/tag/file.zip
+http://your-domain.com/releases/username/repo/releases/download/v1.0/file.zip
 ```
 
 ## 环境变量
@@ -265,6 +265,28 @@ docker run -p 3000:3000 github-proxy
 - 如果匹配黑名单中的仓库或关键词，将返回HTTP 451错误（因法律原因不可用）
 - 黑名单同时适用于主页、API和Raw内容请求
 
+## 网络稳定性优化
+
+为解决在Linux系统和某些网络环境下可能出现的连接问题，本项目实现了以下优化：
+
+### ECONNRESET错误修复
+
+最新版本修复了在Linux下常见的`socket hang up`和`ECONNRESET`错误:
+
+- **自动重试机制**: 对临时网络错误如`ECONNRESET`、`ECONNABORTED`自动执行重试
+- **超时优化**: 增加了更合理的连接超时和请求超时设置
+- **Socket错误处理**: 增强了底层网络异常的捕获和处理机制
+
+### 用户代理(UA)配置
+
+完善的User-Agent配置可有效避免被目标服务器拒绝：
+
+- **多样化UA**: 使用标准浏览器格式的User-Agent，避免被GitHub API限制
+- **随机UA选择**: 从多个真实浏览器UA中随机选择，降低被识别为自动化工具的风险
+- **完整请求头**: 添加Accept、Accept-Encoding等头信息，使请求更接近真实浏览器
+
+这些优化使代理服务在各种网络环境和操作系统下都能稳定运行，特别是解决了Linux系统下的常见连接问题。
+
 ## 性能监控与日志功能
 
 本系统集成了全面的性能监控和日志管理功能，用于帮助管理员实时了解系统状态并排查问题：
@@ -305,38 +327,3 @@ docker run -p 3000:3000 github-proxy
 ## License
 
 MIT 
-
-## Linux系统优化
-
-为了解决在Linux系统下可能出现的网络错误（如"ECONNRESET: socket hang up"），我们进行了以下优化：
-
-### 连接优化
-1. **启用TCP保活**：自动设置socket保持连接，防止连接被过早关闭
-2. **增加重试机制**：对网络错误自动进行重试，减少临时网络问题的影响
-3. **禁用Nagle算法**：减少网络延迟，提高实时响应能力
-
-### 系统优化建议
-如果仍然遇到ECONNRESET错误，可以考虑修改Linux系统参数：
-
-```bash
-# 编辑sysctl配置文件
-sudo nano /etc/sysctl.conf
-
-# 添加或修改以下参数
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_keepalive_intvl = 60
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_fin_timeout = 30
-net.core.somaxconn = 65535
-net.core.netdev_max_backlog = 4096
-net.ipv4.tcp_max_syn_backlog = 4096
-
-# 应用更改
-sudo sysctl -p
-```
-
-### 负载均衡器设置
-如果您使用负载均衡器，请确保：
-1. 增加超时设置（至少120秒）
-2. 启用保持连接功能
-3. 禁用任何可能导致连接过早关闭的规则 

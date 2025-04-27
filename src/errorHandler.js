@@ -74,15 +74,6 @@ const handleError=(error,req,res)=>{
     sendErrorResponse(res,504,{error:'请求超时',message:'GitHub响应时间过长'});
   }else if(error.code==='ECONNREFUSED'){
     sendErrorResponse(res,502,{error:'连接失败',message:'无法连接到GitHub服务器'});
-  }else if(error.code==='ECONNRESET'){
-    // 特别处理ECONNRESET错误
-    sendErrorResponse(res,502,{error:'连接重置',message:'与GitHub服务器的连接被重置，请稍后重试'});
-  }else if(error.code==='ETIMEDOUT'){
-    // 特别处理连接超时错误
-    sendErrorResponse(res,504,{error:'连接超时',message:'建立与GitHub服务器的连接超时'});
-  }else if(error.code==='ENOTFOUND'){
-    // 特别处理DNS解析错误
-    sendErrorResponse(res,502,{error:'DNS解析失败',message:'无法解析GitHub服务器的域名'});
   }else if(safeError.message.includes('circular')||safeError.message.includes('cyclic')){
     // 特别处理循环引用错误
     sendErrorResponse(res,500,{error:'序列化错误',message:'处理响应时遇到循环引用问题'});
