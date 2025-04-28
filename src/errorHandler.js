@@ -1,6 +1,7 @@
 const fs=require('fs');
 const path=require('path');
 const config=require('../config/config');
+const axios=require('axios');
 
 // 安全地将任何对象转换为JSON字符串，避免循环引用问题
 const safeStringify=(obj)=>{
@@ -67,7 +68,27 @@ const handleError=(error,req,res)=>{
   
   // 根据状态码决定如何处理
   if(status===404){
-    serveCustomErrorPage(config.customPages.notFoundPath,res,404);
+    // 检查是否是静态资源请求
+    if(req.url.match(/\.(js|css|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/i)){
+      // 尝试从备用源获取
+      const fallbackUrl=req.url.replace(/^\/assets\//,'https://raw.githubusercontent.com/');
+      axios.get(fallbackUrl,{
+        responseType:'arraybuffer',
+        timeout:10000,
+        maxRedirects:5
+      })
+      .then(response=>{
+        if(res.headersSent)return;
+        res.statusCode=response.status;
+        res.end(response.data);
+      })
+      .catch(fallbackError=>{
+        console.error('备用源获取失败:',fallbackError.message);
+        serveCustomErrorPage(config.customPages.notFoundPath,res,404);
+      });
+    }else{
+      serveCustomErrorPage(config.customPages.notFoundPath,res,404);
+    }
   }else if(status===403){
     serveCustomErrorPage(config.customPages.forbiddenPath,res,403);
   }else if(error.code==='ECONNABORTED'||safeError.message.includes('timeout')){

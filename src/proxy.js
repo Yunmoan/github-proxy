@@ -481,7 +481,10 @@ const handleAssetsRequest = (req, res) => {
   getOrSetCache(cacheKey, config.cache.staticMaxAge, () => 
     axiosClient.static.get(targetUrl, { 
       responseType: 'arraybuffer',
-      headers: addRequiredHeaders({...req.headers}, targetHost)
+      headers: addRequiredHeaders({...req.headers}, targetHost),
+      timeout: 10000, // 10秒超时
+      maxRedirects: 5,
+      validateStatus: status => status < 500 // 允许400等错误自行处理
     })
   )
   .then(response => {
@@ -495,14 +498,40 @@ const handleAssetsRequest = (req, res) => {
       }
     });
     
+    // 设置缓存控制头
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // 24小时缓存
+    res.setHeader('Expires', new Date(Date.now() + 86400000).toUTCString());
+    
     res.statusCode = response.status;
     res.end(response.data);
     recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
   })
   .catch(error => {
     console.error('资源代理错误:', error.message);
-    handleError(error, req, res);
-    recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
+    // 如果是404错误，尝试从备用源获取
+    if(error.response?.status === 404) {
+      const fallbackUrl = targetUrl.replace('github.githubassets.com', 'raw.githubusercontent.com');
+      axiosClient.static.get(fallbackUrl, {
+        responseType: 'arraybuffer',
+        headers: addRequiredHeaders({...req.headers}, targetHost),
+        timeout: 10000,
+        maxRedirects: 5
+      })
+      .then(response => {
+        if(res.headersSent) return;
+        res.statusCode = response.status;
+        res.end(response.data);
+        recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
+      })
+      .catch(fallbackError => {
+        console.error('备用源获取失败:', fallbackError.message);
+        handleError(fallbackError, req, res);
+        recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
+      });
+    } else {
+      handleError(error, req, res);
+      recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
+    }
   });
 };
 

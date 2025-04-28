@@ -6,6 +6,7 @@ const { route } = require('./proxy');
 const { handleError, serveCustomErrorPage } = require('./errorHandler');
 const { blockBlacklistedContent } = require('./blacklist');
 const admin = require('./admin'); // 导入admin模块
+const axios = require('axios');
 
 // 请求超时设置
 const REQUEST_TIMEOUT = 3 * 60 * 1000; // 3分钟
@@ -84,7 +85,14 @@ const server = http.createServer((req, res) => {
             case '.gif': contentType = 'image/gif'; break;
             case '.svg': contentType = 'image/svg+xml'; break;
             case '.ico': contentType = 'image/x-icon'; break;
+            case '.woff': case '.woff2': contentType = 'font/woff2'; break;
+            case '.ttf': contentType = 'font/ttf'; break;
+            case '.eot': contentType = 'application/vnd.ms-fontobject'; break;
           }
+          
+          // 设置缓存头
+          res.setHeader('Cache-Control', 'public, max-age=86400'); // 24小时缓存
+          res.setHeader('Expires', new Date(Date.now() + 86400000).toUTCString());
           
           // 提供文件
           res.setHeader('Content-Type', contentType);
@@ -92,7 +100,26 @@ const server = http.createServer((req, res) => {
           return;
         } else if(!fs.existsSync(filePath)) {
           console.log(`静态文件不存在，返回404: ${req.url}`);
-          serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+          // 如果是资源文件，尝试从GitHub获取
+          if(req.url.startsWith('/assets/')) {
+            const targetUrl = `https://github.githubassets.com${req.url.replace('/assets', '')}`;
+            axios.get(targetUrl, {
+              responseType: 'arraybuffer',
+              timeout: 10000,
+              maxRedirects: 5
+            })
+            .then(response => {
+              if(res.headersSent) return;
+              res.statusCode = response.status;
+              res.end(response.data);
+            })
+            .catch(error => {
+              console.error('从GitHub获取资源失败:', error.message);
+              serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+            });
+          } else {
+            serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+          }
           return;
         }
       } catch(err) {
