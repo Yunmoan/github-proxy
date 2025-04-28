@@ -99,8 +99,7 @@ const server = http.createServer((req, res) => {
           fs.createReadStream(publicFilePath).pipe(res);
           return;
         } else if(!fs.existsSync(filePath)) {
-          console.log(`静态文件不存在，返回404: ${req.url}`);
-          // 如果是资源文件，尝试从GitHub获取
+          // 如果是GitHub资源文件，直接转发请求
           if(req.url.startsWith('/assets/')) {
             const targetUrl = `https://github.githubassets.com${req.url.replace('/assets', '')}`;
             axios.get(targetUrl, {
@@ -110,12 +109,36 @@ const server = http.createServer((req, res) => {
             })
             .then(response => {
               if(res.headersSent) return;
+              // 设置缓存头
+              res.setHeader('Cache-Control', 'public, max-age=86400');
+              res.setHeader('Expires', new Date(Date.now() + 86400000).toUTCString());
               res.statusCode = response.status;
               res.end(response.data);
             })
             .catch(error => {
-              console.error('从GitHub获取资源失败:', error.message);
-              serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+              // 如果是404错误，尝试从备用源获取
+              if(error.response?.status === 404) {
+                const fallbackUrl = targetUrl.replace('github.githubassets.com', 'raw.githubusercontent.com');
+                axios.get(fallbackUrl, {
+                  responseType: 'arraybuffer',
+                  timeout: 10000,
+                  maxRedirects: 5
+                })
+                .then(response => {
+                  if(res.headersSent) return;
+                  res.setHeader('Cache-Control', 'public, max-age=86400');
+                  res.setHeader('Expires', new Date(Date.now() + 86400000).toUTCString());
+                  res.statusCode = response.status;
+                  res.end(response.data);
+                })
+                .catch(fallbackError => {
+                  console.error('备用源获取失败:', fallbackError.message);
+                  serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+                });
+              } else {
+                console.error('从GitHub获取资源失败:', error.message);
+                serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+              }
             });
           } else {
             serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
