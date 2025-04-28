@@ -144,37 +144,37 @@ const getOrSetCache = (cacheKey, maxAge, fetchCallback) => {
 const processCSPHeader = (header, host) => {
   if (!header) return header;
   
-  // 构建安全源列表（确保引号正确）
-  const sources = [
+  // 仅列出域名（不要包含路径）
+  const domains = [
     `'self'`, 
-    host, 
-    `${host}/assets`, 
-    `${host}/raw`, 
-    `${host}/api`, 
-    `${host}/releases`, 
-    `${host}/expanded_assets`, 
-    `${host}/api/_private`, 
+    host,
     'cdn.gh.squarefield.ltd', 
     '*.githubusercontent.com', 
     '*.githubassets.com',
-    'data:', 
+    'github.githubassets.com',
+    'github.com',
+    'api.github.com',
+    'avatars.githubusercontent.com',
+    'repository-images.githubusercontent.com',
+    'user-images.githubusercontent.com',
+    'data:',
     'blob:'
   ];
   
   // 构建完整的CSP指令集
   const directives = {
-    'default-src': [`'self'`, host],
-    'script-src': [...sources, `'unsafe-inline'`, `'unsafe-eval'`],
-    'script-src-elem': [...sources, `'unsafe-inline'`, `'unsafe-eval'`],
-    'style-src': [...sources, `'unsafe-inline'`],
-    'style-src-elem': [...sources, `'unsafe-inline'`],
-    'img-src': [...sources, 'avatars.githubusercontent.com', 'repository-images.githubusercontent.com', 'user-images.githubusercontent.com'],
-    'connect-src': [...sources, `wss://${host}`, 'github.com', 'api.github.com'],
-    'font-src': [...sources, 'github.githubassets.com'],
-    'frame-src': [...sources, 'render.githubusercontent.com'],
-    'media-src': [...sources],
-    'worker-src': [`'self'`, host, 'blob:', 'github.com'],
-    'manifest-src': [`'self'`, host, 'github.githubassets.com']
+    'default-src': [...domains],
+    'script-src': [...domains, `'unsafe-inline'`, `'unsafe-eval'`],
+    'script-src-elem': [...domains, `'unsafe-inline'`, `'unsafe-eval'`],
+    'style-src': [...domains, `'unsafe-inline'`],
+    'style-src-elem': [...domains, `'unsafe-inline'`],
+    'img-src': [...domains],
+    'connect-src': [...domains, `wss://${host}`],
+    'font-src': [...domains],
+    'frame-src': [...domains, 'render.githubusercontent.com'],
+    'media-src': [...domains],
+    'worker-src': [...domains],
+    'manifest-src': [...domains]
   };
   
   // 生成CSP头，确保不重复值
