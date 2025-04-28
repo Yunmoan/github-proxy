@@ -150,11 +150,40 @@ const server = http.createServer((req, res) => {
         
         console.log(`处理CDN请求: ${cdnUrl}`);
         
+        // 根据文件扩展名判断内容类型
+        const fileExtension = cdnUrl.split('.').pop().toLowerCase();
+        const contentTypeMap = {
+          'js': 'application/javascript',
+          'mjs': 'application/javascript',
+          'css': 'text/css',
+          'json': 'application/json',
+          'html': 'text/html',
+          'htm': 'text/html',
+          'svg': 'image/svg+xml',
+          'png': 'image/png',
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'gif': 'image/gif',
+          'ico': 'image/x-icon',
+          'woff': 'font/woff',
+          'woff2': 'font/woff2',
+          'ttf': 'font/ttf',
+          'otf': 'font/otf',
+          'eot': 'application/vnd.ms-fontobject'
+        };
+        
+        // 设置预期的内容类型
+        let expectedContentType = 'application/octet-stream';
+        if(contentTypeMap[fileExtension]) {
+          expectedContentType = contentTypeMap[fileExtension];
+        }
+        
         // 特殊处理expanded_assets路径
         if(cdnUrl.includes('expanded_assets')) {
           // 修复缺少文件扩展名的问题
           if(!cdnUrl.match(/\.[a-z0-9]+$/i)) {
             cdnUrl = `${cdnUrl}.json`;
+            expectedContentType = 'application/json';
           }
         }
         
@@ -162,19 +191,24 @@ const server = http.createServer((req, res) => {
         const urlObj = new URL(cdnUrl);
         urlObj.searchParams.append('_proxy', 'true'); // 标记这是代理请求
         
+        // 设置合适的请求头
+        const headers = {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Referer': `https://${req.headers.host}/`,
+          'Origin': `https://${req.headers.host}`,
+          'Connection': 'keep-alive',
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        };
+        
         // 发送请求
         axios.get(urlObj.toString(), {
           responseType: 'arraybuffer',
           timeout: 15000,
           maxRedirects: 5,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
+          headers: headers
         })
         .then(response => {
           if(res.headersSent) return;
@@ -186,10 +220,36 @@ const server = http.createServer((req, res) => {
           
           // 设置缓存控制头
           res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
-          res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+          
+          // 优先使用实际响应的Content-Type
+          const contentType = response.headers['content-type'] || expectedContentType;
+          res.setHeader('Content-Type', contentType);
+          
+          // 其他有用的响应头
+          if(response.headers['last-modified']) {
+            res.setHeader('Last-Modified', response.headers['last-modified']);
+          }
+          
+          if(response.headers['etag']) {
+            res.setHeader('ETag', response.headers['etag']);
+          }
           
           res.statusCode = response.status;
-          res.end(response.data);
+          
+          // 检查是否是HTML并处理链接
+          if(contentType.includes('text/html')) {
+            try {
+              // 转换HTML中的链接
+              const html = Buffer.isBuffer(response.data) ? response.data.toString('utf-8') : response.data;
+              const processedHtml = require('./proxy').transformHtmlContent(html, req);
+              res.end(processedHtml);
+            } catch(error) {
+              console.error('处理HTML内容错误:', error.message);
+              res.end(response.data);
+            }
+          } else {
+            res.end(response.data);
+          }
         })
         .catch(error => {
           console.error('CDN请求错误:', error.message);
@@ -221,16 +281,20 @@ const server = http.createServer((req, res) => {
               timeout: 15000,
               maxRedirects: 5,
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36 retry',
-                'Accept': '*/*',
-                'Cache-Control': 'no-cache'
+                ...headers,
+                'User-Agent': `${headers['User-Agent']} retry`
               }
             })
             .then(response => {
               if(res.headersSent) return;
               res.setHeader('Access-Control-Allow-Origin', '*');
               res.setHeader('Cache-Control', 'public, max-age=3600');
-              res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+              
+              // 基于扩展名设置内容类型
+              const ext = nextUrl.split('.').pop().toLowerCase();
+              const contentType = response.headers['content-type'] || (contentTypeMap[ext] || 'application/octet-stream');
+              res.setHeader('Content-Type', contentType);
+              
               res.statusCode = response.status;
               res.end(response.data);
             })
@@ -257,12 +321,26 @@ const server = http.createServer((req, res) => {
                 githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
               }
             } else {
-              // 一般情况使用GitHub原始内容服务
-              const cdnPathMatch = cdnUrl.match(/https?:\/\/cdn\.[^\/]+\/(.+)/);
-              if(cdnPathMatch && cdnPathMatch[1]) {
-                githubFallbackUrl = `https://raw.githubusercontent.com/${cdnPathMatch[1]}`;
-              } else {
-                // 如果无法解析路径，直接替换域名
+              // 尝试构建GitHub路径
+              try {
+                const cdnPathMatch = cdnUrl.match(/https?:\/\/cdn\.[^\/]+\/(.+)/);
+                if(cdnPathMatch && cdnPathMatch[1]) {
+                  const pathParts = cdnPathMatch[1].split('/');
+                  if(pathParts.length >= 2) {
+                    const owner = pathParts[0];
+                    const repo = pathParts[1];
+                    const remainingPath = pathParts.slice(2).join('/');
+                    githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${remainingPath}`;
+                  } else {
+                    // 直接替换域名
+                    githubFallbackUrl = cdnUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
+                  }
+                } else {
+                  // 如果无法解析路径，直接替换域名
+                  githubFallbackUrl = cdnUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
+                }
+              } catch(e) {
+                // 解析错误，直接替换域名
                 githubFallbackUrl = cdnUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
               }
             }
@@ -274,15 +352,21 @@ const server = http.createServer((req, res) => {
               timeout: 15000,
               maxRedirects: 5,
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Cache-Control': 'no-cache'
+                ...headers,
+                'Host': new URL(githubFallbackUrl).host
               }
             })
             .then(fallbackResponse => {
               if(res.headersSent) return;
               res.setHeader('Access-Control-Allow-Origin', '*');
               res.setHeader('Cache-Control', 'public, max-age=3600');
+              
+              // 设置适当的内容类型
+              const fileExt = githubFallbackUrl.split('.').pop().toLowerCase();
+              const contentType = fallbackResponse.headers['content-type'] || 
+                               (contentTypeMap[fileExt] || 'application/octet-stream');
+              res.setHeader('Content-Type', contentType);
+              
               res.statusCode = fallbackResponse.status;
               res.end(fallbackResponse.data);
             })
