@@ -79,26 +79,28 @@ const transformGithubUrl = (url, req) => {
   if (!url) return url;
   
   const host = req.headers.host;
+  const protocol = req.headers['x-forwarded-proto'] || 'http';
   return url
-    .replace(/https?:\/\/github\.com/g, `http://${host}`)
-    .replace(/https?:\/\/api\.github\.com/g, `http://${host}/api`)
-    .replace(/https?:\/\/raw\.githubusercontent\.com/g, `http://${host}/raw`)
-    .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `http://${host}/releases`)
-    .replace(/https?:\/\/github\.githubassets\.com/g, `http://${host}/assets`)
-    .replace(/https?:\/\/codeload\.github\.com/g, `http://${host}/codeload`);
+    .replace(/https?:\/\/github\.com/g, `${protocol}://${host}`)
+    .replace(/https?:\/\/api\.github\.com/g, `${protocol}://${host}/api`)
+    .replace(/https?:\/\/raw\.githubusercontent\.com/g, `${protocol}://${host}/raw`)
+    .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `${protocol}://${host}/releases`)
+    .replace(/https?:\/\/github\.githubassets\.com/g, `${protocol}://${host}/assets`)
+    .replace(/https?:\/\/codeload\.github\.com/g, `${protocol}://${host}/codeload`);
 };
 
 // 转换HTML内容中的链接
 const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
+  const protocol = req.headers['x-forwarded-proto'] || 'http';
   return body
-    .replace(/https?:\/\/github\.com/g, `http://${req.headers.host}`)
-    .replace(/https?:\/\/api\.github\.com/g, `http://${req.headers.host}/api`)
-    .replace(/https?:\/\/raw\.githubusercontent\.com/g, `http://${req.headers.host}/raw`)
-    .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `http://${req.headers.host}/releases`)
-    .replace(/https?:\/\/github\.githubassets\.com/g, `http://${req.headers.host}/assets`)
-    .replace(/https?:\/\/codeload\.github\.com/g, `http://${req.headers.host}/codeload`);
+    .replace(/https?:\/\/github\.com/g, `${protocol}://${req.headers.host}`)
+    .replace(/https?:\/\/api\.github\.com/g, `${protocol}://${req.headers.host}/api`)
+    .replace(/https?:\/\/raw\.githubusercontent\.com/g, `${protocol}://${req.headers.host}/raw`)
+    .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `${protocol}://${req.headers.host}/releases`)
+    .replace(/https?:\/\/github\.githubassets\.com/g, `${protocol}://${req.headers.host}/assets`)
+    .replace(/https?:\/\/codeload\.github\.com/g, `${protocol}://${req.headers.host}/codeload`);
 };
 
 // 处理自定义页面
@@ -128,7 +130,8 @@ const processCSPHeader = (header, req) => {
                .replace(/github\.com/g, `github.com ${host}`)
                .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
                .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
-               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `);
+               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `)
+               .replace(/img-src\s/g, `img-src 'self' data: blob: ${host} `);
 };
 
 // 处理响应头，添加或修改CSP相关头部
@@ -142,6 +145,15 @@ const processResponseHeaders = (headers, req) => {
   
   if(result['Content-Security-Policy']) {
     result['Content-Security-Policy'] = processCSPHeader(result['Content-Security-Policy'], req);
+  }
+  
+  // 处理CSP报告模式头部
+  if(result['content-security-policy-report-only']) {
+    result['content-security-policy-report-only'] = processCSPHeader(result['content-security-policy-report-only'], req);
+  }
+  
+  if(result['Content-Security-Policy-Report-Only']) {
+    result['Content-Security-Policy-Report-Only'] = processCSPHeader(result['Content-Security-Policy-Report-Only'], req);
   }
   
   // 处理X-Frame-Options，允许在我们的代理中嵌入内容
@@ -714,4 +726,4 @@ const route = (req, res) => {
   }
 };
 
-module.exports = { route }; 
+module.exports = { route };
