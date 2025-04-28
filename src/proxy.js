@@ -92,36 +92,13 @@ const transformGithubUrl = (url, req) => {
 const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
-  // 将body标签内的turbo.js脚本移到head标签内
-  body = body.replace(
-    /<body(.*?)>([\s\S]*?)<script(.*?)turbo(.*?)>([\s\S]*?)<\/script>/i,
-    '<body$1>$2'
-  ).replace(
-    /<head>([\s\S]*?)<\/head>/i,
-    '<head>$1<script$3turbo$4>$5</script></head>'
-  );
-  
-  // 为带有repository-container-header的body标签添加data-turbo-suppress-warning属性
-  body = body.replace(
-    /<body([^>]*)id="repository-container-header"/i,
-    '<body$1id="repository-container-header" data-turbo-suppress-warning'
-  );
-  
-  // 为所有body标签添加data-turbo-suppress-warning属性
-  body = body.replace(
-    /<body([^>]*)>/i,
-    '<body$1 data-turbo-suppress-warning>'
-  );
-  
   return body
     .replace(/https?:\/\/github\.com/g, `http://${req.headers.host}`)
     .replace(/https?:\/\/api\.github\.com/g, `http://${req.headers.host}/api`)
     .replace(/https?:\/\/raw\.githubusercontent\.com/g, `http://${req.headers.host}/raw`)
     .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `http://${req.headers.host}/releases`)
     .replace(/https?:\/\/github\.githubassets\.com/g, `http://${req.headers.host}/assets`)
-    .replace(/https?:\/\/codeload\.github\.com/g, `http://${req.headers.host}/codeload`)
-    .replace(/https?:\/\/[^\/]+\/([^\/]+\/[^\/]+)\/releases\/expanded_assets\//g, `http://${req.headers.host}/$1/releases/expanded_assets/`)
-    .replace(/\/api\/_private\//g, `/api/_private/`); // 保留_private路径
+    .replace(/https?:\/\/codeload\.github\.com/g, `http://${req.headers.host}/codeload`);
 };
 
 // 处理自定义页面
@@ -140,47 +117,18 @@ const getOrSetCache = (cacheKey, maxAge, fetchCallback) => {
   });
 };
 
-// 处理CSP头
-const processCSPHeader = (header, host) => {
-  if (!header) return header;
+// 处理内容安全策略(CSP)头
+const processCSPHeader = (header, req) => {
+  if(!header) return header;
   
-  // 仅列出域名（不要包含路径）
-  const domains = [
-    `'self'`, 
-    host,
-    'cdn.gh.squarefield.ltd', 
-    '*.githubusercontent.com', 
-    '*.githubassets.com',
-    'github.githubassets.com',
-    'github.com',
-    'api.github.com',
-    'avatars.githubusercontent.com',
-    'repository-images.githubusercontent.com',
-    'user-images.githubusercontent.com',
-    'data:',
-    'blob:'
-  ];
+  const host = req.headers.host;
   
-  // 构建完整的CSP指令集
-  const directives = {
-    'default-src': [...domains],
-    'script-src': [...domains, `'unsafe-inline'`, `'unsafe-eval'`],
-    'script-src-elem': [...domains, `'unsafe-inline'`, `'unsafe-eval'`],
-    'style-src': [...domains, `'unsafe-inline'`],
-    'style-src-elem': [...domains, `'unsafe-inline'`],
-    'img-src': [...domains],
-    'connect-src': [...domains, `wss://${host}`],
-    'font-src': [...domains],
-    'frame-src': [...domains, 'render.githubusercontent.com'],
-    'media-src': [...domains],
-    'worker-src': [...domains],
-    'manifest-src': [...domains]
-  };
-  
-  // 生成CSP头，确保不重复值
-  return Object.entries(directives)
-    .map(([directive, values]) => `${directive} ${[...new Set(values)].join(' ')}`)
-    .join('; ');
+  // 修改CSP策略，将我们的代理域名添加到各个指令中
+  return header.replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
+               .replace(/github\.com/g, `github.com ${host}`)
+               .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
+               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
+               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `);
 };
 
 // 处理响应头，添加或修改CSP相关头部
@@ -189,11 +137,11 @@ const processResponseHeaders = (headers, req) => {
   
   // 处理各种CSP相关头部
   if(result['content-security-policy']) {
-    result['content-security-policy'] = processCSPHeader(result['content-security-policy'], req.headers.host);
+    result['content-security-policy'] = processCSPHeader(result['content-security-policy'], req);
   }
   
   if(result['Content-Security-Policy']) {
-    result['Content-Security-Policy'] = processCSPHeader(result['Content-Security-Policy'], req.headers.host);
+    result['Content-Security-Policy'] = processCSPHeader(result['Content-Security-Policy'], req);
   }
   
   // 处理X-Frame-Options，允许在我们的代理中嵌入内容
@@ -581,8 +529,8 @@ const handleAssetsRequest = (req, res) => {
         recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
       });
     } else {
-      handleError(error, req, res);
-      recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
+    handleError(error, req, res);
+    recordProxyRequest(req, startTime, 500, extractRepoFromUrl(req.url));
     }
   });
 };
