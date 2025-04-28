@@ -127,14 +127,26 @@ const processCSPHeader = (header, req) => {
   const protocol = req.headers['x-forwarded-proto'] || 'http';
   
   // 修改CSP策略，将我们的代理域名添加到各个指令中
-  return header.replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
-               .replace(/github\.com/g, `github.com ${host}`)
-               .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
-               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${protocol}://${host} `)
-               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${protocol}://${host} `)
-               .replace(/img-src\s/g, `img-src 'self' data: blob: ${protocol}://${host} `)
-               .replace(/https:/g, `${protocol}:`);
-
+  let processedHeader = header
+    .replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
+    .replace(/github\.com/g, `github.com ${host}`)
+    .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
+    .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${protocol}://${host} `)
+    .replace(/style-src\s/g, `style-src 'unsafe-inline' ${protocol}://${host} `);
+  
+  // 如果存在img-src指令，也添加我们的域名
+  if(header.includes('img-src')) {
+    processedHeader = processedHeader.replace(/img-src\s/g, `img-src 'self' data: blob: ${protocol}://${host} `);
+  }
+  
+  // 更智能地处理协议转换
+  // 只替换特定域名的协议，而不是替换所有https:
+  return processedHeader
+    .replace(/https:\/\/github\.githubassets\.com/g, `${protocol}:\/\/github.githubassets.com`)
+    .replace(/https:\/\/github\.com/g, `${protocol}:\/\/github.com`)
+    .replace(/https:\/\/raw\.githubusercontent\.com/g, `${protocol}:\/\/raw.githubusercontent.com`)
+    .replace(/https:\/\/github-releases\.githubusercontent\.com/g, `${protocol}:\/\/github-releases.githubusercontent.com`)
+    .replace(/https:\/\/codeload\.github\.com/g, `${protocol}:\/\/codeload.github.com`);
 };
 
 // 处理响应头，添加或修改CSP相关头部
