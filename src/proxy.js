@@ -92,107 +92,13 @@ const transformGithubUrl = (url, req) => {
 const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
-  const host = req.headers.host;
-  
-  // 添加Turbo警告抑制属性
-  body = body.replace(/<body([^>]*)>/, '<body$1 data-turbo-suppress-warning>');
-  
-  // 移动Turbo脚本到head
-  const turboScript = body.match(/<script[^>]*src="[^"]*turbo[^"]*"[^>]*><\/script>/);
-  if (turboScript) {
-    body = body.replace(turboScript[0], '');
-    body = body.replace(/<\/head>/, `${turboScript[0]}</head>`);
-  }
-  
-  // 添加元标签允许所有内容
-  body = body.replace(/<head([^>]*)>/, `<head$1>
-    <meta http-equiv="Content-Security-Policy" content="default-src * 'self' data: blob: 'unsafe-inline' 'unsafe-eval';">
-  `);
-  
-  // 处理include-fragment元素，转换src属性
-  body = body.replace(/<include-fragment([^>]*)src="([^"]*)"([^>]*)>/g, (match, pre, src, post) => {
-    // 如果是HTTP/HTTPS链接，转换为代理路径
-    if (src.startsWith('http')) {
-      // 提取有效的URL部分
-      const urlMatch = src.match(/^(https?:\/\/[^"'\s]+)/);
-      if (urlMatch) {
-        return `<include-fragment${pre}src="/fragment/${urlMatch[1]}"${post}>`;
-      }
-    }
-    
-    // 相对路径保持不变
-    return match;
-  });
-  
-  // 处理各种资源链接 (包括script, link, img等)
-  function processResourceUrl(url) {
-    // 如果已经是相对于当前主机的路径，保持不变
-    if (url.startsWith('/') && !url.startsWith('//')) {
-      return url;
-    }
-    
-    // 如果是CDN域名，直接代理
-    if (url.match(/https?:\/\/cdn\./)) {
-      return `/fragment/${url}`;
-    }
-    
-    // GitHub资源处理
-    if (url.match(/https?:\/\/github\.githubassets\.com/)) {
-      return url.replace(/https?:\/\/github\.githubassets\.com/g, `/assets`);
-    }
-    
-    // Raw github content
-    if (url.match(/https?:\/\/raw\.githubusercontent\.com/)) {
-      return url.replace(/https?:\/\/raw\.githubusercontent\.com/g, `/raw`);
-    }
-    
-    // API github
-    if (url.match(/https?:\/\/api\.github\.com/)) {
-      return url.replace(/https?:\/\/api\.github\.com/g, `/api`);
-    }
-    
-    // GitHub主站
-    if (url.match(/https?:\/\/github\.com/)) {
-      return url.replace(/https?:\/\/github\.com/g, ``);
-    }
-    
-    // 其他GitHub相关域名的处理
-    if (url.match(/https?:\/\/[^.]+\.githubusercontent\.com/)) {
-      // 对于不同子域名，统一通过fragment代理
-      return `/fragment/${url}`;
-    }
-    
-    // 默认处理 - 对于无法识别的外部资源，也通过fragment代理
-    if (url.match(/^https?:\/\//)) {
-      return `/fragment/${url}`;
-    }
-    
-    return url;
-  }
-  
-  // 处理所有资源URL
-  const resourceAttrs = ['src', 'href', 'data-url', 'data-src', 'content'];
-  resourceAttrs.forEach(attr => {
-    const regex = new RegExp(`(${attr}=["'])(https?:[^"']+|//[^"']+)(["'])`, 'g');
-    body = body.replace(regex, (match, prefix, url, suffix) => {
-      // 去除URL前缀的双斜杠
-      if (url.startsWith('//')) {
-        url = `https:${url}`;
-      }
-      return `${prefix}${processResourceUrl(url)}${suffix}`;
-    });
-  });
-  
-  // 处理内联样式表中的URL
-  body = body.replace(/url\((['"]?)(https?:[^)]+|\/\/[^)]+)(['"]?)\)/g, (match, prefix, url, suffix) => {
-    // 去除URL前缀的双斜杠
-    if (url.startsWith('//')) {
-      url = `https:${url}`;
-    }
-    return `url(${prefix}${processResourceUrl(url)}${suffix})`;
-  });
-  
-  return body;
+  return body
+    .replace(/https?:\/\/github\.com/g, `http://${req.headers.host}`)
+    .replace(/https?:\/\/api\.github\.com/g, `http://${req.headers.host}/api`)
+    .replace(/https?:\/\/raw\.githubusercontent\.com/g, `http://${req.headers.host}/raw`)
+    .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `http://${req.headers.host}/releases`)
+    .replace(/https?:\/\/github\.githubassets\.com/g, `http://${req.headers.host}/assets`)
+    .replace(/https?:\/\/codeload\.github\.com/g, `http://${req.headers.host}/codeload`);
 };
 
 // 处理自定义页面
@@ -213,44 +119,36 @@ const getOrSetCache = (cacheKey, maxAge, fetchCallback) => {
 
 // 处理内容安全策略(CSP)头
 const processCSPHeader = (header, req) => {
-  // 不再尝试解析原始CSP，直接替换为允许必要资源的新CSP
+  if(!header) return header;
+  
   const host = req.headers.host;
   
-  // 创建一个宽松但安全的CSP策略
-  return `default-src 'self' ${host} github.com api.github.com raw.githubusercontent.com github-cloud.s3.amazonaws.com github.githubassets.com cdn.gh.squarefield.ltd; 
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' ${host} github.githubassets.com cdn.gh.squarefield.ltd; 
-    style-src 'self' 'unsafe-inline' ${host} github.githubassets.com cdn.gh.squarefield.ltd; 
-    img-src 'self' data: blob: ${host} github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com objects.githubusercontent.com avatars.githubusercontent.com media.githubusercontent.com camo.githubusercontent.com identicons.github.com avatars.githubusercontent.com private-avatars.githubusercontent.com github-cloud.s3.amazonaws.com release-assets.githubusercontent.com cdn.gh.squarefield.ltd;
-    connect-src 'self' ${host} github.com api.github.com github.githubassets.com raw.githubusercontent.com *.github.com uploads.github.com collector.github.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com objects-origin.githubusercontent.com *.actions.githubusercontent.com productionresultssa*.blob.core.windows.net github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com cdn.gh.squarefield.ltd;
-    font-src 'self' data: ${host} github.githubassets.com cdn.gh.squarefield.ltd;
-    frame-src 'self' ${host} github.com render.githubusercontent.com viewscreen.githubusercontent.com cdn.gh.squarefield.ltd;
-    manifest-src 'self' ${host};
-    media-src 'self' ${host} github.githubassets.com cdn.gh.squarefield.ltd;
-    worker-src 'self' blob: ${host} github.com;`;
+  // 修改CSP策略，将我们的代理域名添加到各个指令中
+  return header.replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
+               .replace(/github\.com/g, `github.com ${host}`)
+               .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
+               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
+               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `);
 };
 
 // 处理响应头，添加或修改CSP相关头部
 const processResponseHeaders = (headers, req) => {
   const result = {...headers};
   
-  // 删除所有可能的CSP相关头
-  delete result['content-security-policy'];
-  delete result['Content-Security-Policy'];
-  delete result['content-security-policy-report-only'];
-  delete result['Content-Security-Policy-Report-Only'];
+  // 处理各种CSP相关头部
+  if(result['content-security-policy']) {
+    result['content-security-policy'] = processCSPHeader(result['content-security-policy'], req);
+  }
   
-  // 添加新的CSP头
-  result['Content-Security-Policy'] = processCSPHeader(null, req);
+  if(result['Content-Security-Policy']) {
+    result['Content-Security-Policy'] = processCSPHeader(result['Content-Security-Policy'], req);
+  }
   
   // 处理X-Frame-Options，允许在我们的代理中嵌入内容
-  delete result['x-frame-options'];
-  delete result['X-Frame-Options'];
-  
-  // 添加必要的安全头
-  result['X-Content-Type-Options'] = 'nosniff';
-  result['X-XSS-Protection'] = '1; mode=block';
-  result['Referrer-Policy'] = 'strict-origin-when-cross-origin';
-  result['Permissions-Policy'] = 'interest-cohort=()';
+  if(result['x-frame-options'] || result['X-Frame-Options']) {
+    delete result['x-frame-options'];
+    delete result['X-Frame-Options'];
+  }
   
   return result;
 };
@@ -780,259 +678,6 @@ const handleGithubRequest = async (req, res) => {
   }
 };
 
-// 处理include-fragment请求
-const handleIncludeFragmentRequest = (req, res) => {
-  const startTime = Date.now();
-  const fragmentUrl = req.url.replace(/^\/fragment\//, '');
-  
-  // 支持多种域名的请求
-  let targetUrl = fragmentUrl;
-  if (!targetUrl.startsWith('http')) {
-    // 处理相对路径，确保添加协议
-    if (targetUrl.startsWith('cdn.')) {
-      targetUrl = `https://${targetUrl}`;
-    } else {
-      targetUrl = `${config.github.baseUrl}${fragmentUrl}`;
-    }
-  }
-  
-  try {
-    // 规范化URL，避免格式问题
-    const urlObj = new URL(targetUrl);
-    
-    // 确保https协议，针对当前资源类型设置合适的请求头
-    urlObj.protocol = 'https:';
-    targetUrl = urlObj.toString();
-    
-    // 移除URL末尾的斜杠
-    if (targetUrl.endsWith('/')) {
-      targetUrl = targetUrl.slice(0, -1);
-    }
-    
-    const targetHost = urlObj.host;
-    
-    console.log(`处理fragment请求: ${targetUrl}`);
-    
-    // 根据资源类型确定正确的contentType
-    const fileExtension = targetUrl.split('.').pop().toLowerCase();
-    let expectedContentType = 'application/octet-stream';
-    
-    // 预设一些常见的contentType
-    const contentTypeMap = {
-      'js': 'application/javascript',
-      'css': 'text/css',
-      'json': 'application/json',
-      'html': 'text/html',
-      'svg': 'image/svg+xml',
-      'png': 'image/png',
-      'jpg': 'image/jpeg',
-      'jpeg': 'image/jpeg',
-      'gif': 'image/gif',
-      'ico': 'image/x-icon',
-      'woff': 'font/woff',
-      'woff2': 'font/woff2',
-      'ttf': 'font/ttf',
-      'otf': 'font/otf',
-      'eot': 'application/vnd.ms-fontobject'
-    };
-    
-    if (contentTypeMap[fileExtension]) {
-      expectedContentType = contentTypeMap[fileExtension];
-    }
-    
-    // 特殊处理expanded_assets路径
-    if(targetUrl.includes('expanded_assets')) {
-      // 修复缺少文件扩展名的问题
-      if(!targetUrl.match(/\.[a-z0-9]+$/i)) {
-        targetUrl = `${targetUrl}.json`;
-        expectedContentType = 'application/json';
-      }
-    }
-    
-    const cacheKey = `fragment:${targetUrl}`;
-    
-    // 设置适当的请求头
-    const headers = {
-      ...req.headers,
-      'Accept': '*/*',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
-      'Referer': `https://${req.headers.host}/`,
-      'Origin': `https://${req.headers.host}`,
-      'Accept-Encoding': 'gzip, deflate, br'
-    };
-    
-    // 删除Host头，使用目标主机
-    delete headers.host;
-    
-    getOrSetCache(cacheKey, config.cache.maxAge, () => 
-      axiosClient.default.get(targetUrl, { 
-        responseType: 'arraybuffer',
-        headers: headers,
-        timeout: 15000,
-        maxRedirects: 5
-      })
-    )
-    .then(response => {
-      if(res.headersSent) return;
-      
-      // 处理CORS头，确保允许跨域请求
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-      
-      // 设置缓存控制头
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
-      
-      // 如果响应提供了Content-Type，优先使用它
-      let contentType = response.headers['content-type'] || expectedContentType;
-      res.setHeader('Content-Type', contentType);
-      
-      // 设置其他有用的响应头
-      if (response.headers['last-modified']) {
-        res.setHeader('Last-Modified', response.headers['last-modified']);
-      }
-      
-      if (response.headers['etag']) {
-        res.setHeader('ETag', response.headers['etag']);
-      }
-      
-      res.statusCode = response.status;
-      
-      // 如果是HTML内容，转换链接
-      if (contentType.includes('text/html')) {
-        let html = Buffer.isBuffer(response.data) ? response.data.toString('utf-8') : response.data;
-        html = transformHtmlContent(html, req);
-        res.end(html);
-      } else {
-        res.end(response.data);
-      }
-      
-      recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
-    })
-    .catch(error => {
-      console.error('Fragment请求错误:', error.message);
-      
-      // 尝试不同的文件扩展名
-      if(targetUrl.includes('expanded_assets') && !error.message.includes('retry')) {
-        const extensions = ['.json', '.js', '.ts', '.css', '.txt', '.md'];
-        let currentExtension = '';
-        const baseUrl = targetUrl.replace(/\.[^/.]+$/, '');
-        
-        // 检查当前URL是否已有扩展名
-        const match = targetUrl.match(/\.([^/.]+)$/);
-        if(match) {
-          currentExtension = match[1];
-        }
-        
-        // 找出下一个要尝试的扩展名
-        let nextExtIndex = 0;
-        if(currentExtension) {
-          const currentIndex = extensions.findIndex(ext => ext.substring(1) === currentExtension);
-          nextExtIndex = currentIndex > -1 ? (currentIndex + 1) % extensions.length : 0;
-        }
-        
-        const nextUrl = `${baseUrl}${extensions[nextExtIndex]}`;
-        console.log(`尝试其他扩展名: ${nextUrl} (retry)`);
-        
-        axiosClient.default.get(nextUrl, {
-          responseType: 'arraybuffer',
-          headers: {
-            ...headers,
-            'User-Agent': `${headers['User-Agent']} retry`
-          },
-          timeout: 15000,
-          maxRedirects: 5
-        })
-        .then(response => {
-          if(res.headersSent) return;
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Cache-Control', 'public, max-age=3600');
-          res.setHeader('Content-Type', response.headers['content-type'] || expectedContentType);
-          res.statusCode = response.status;
-          res.end(response.data);
-          recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
-        })
-        .catch(() => {
-          // 如果失败，尝试从GitHub获取
-          tryGitHubFallback();
-        });
-      } else {
-        // 直接尝试GitHub备用源
-        tryGitHubFallback();
-      }
-      
-      function tryGitHubFallback() {
-        // 尝试从URL中提取仓库路径和文件信息
-        const releaseMatch = targetUrl.match(/\/([^\/]+)\/([^\/]+)\/releases\/([^\/]+)\/([^\/]+)/);
-        
-        let githubFallbackUrl;
-        if(releaseMatch) {
-          const [_, owner, repo, releaseType, releaseInfo] = releaseMatch;
-          if(releaseType === 'expanded_assets') {
-            githubFallbackUrl = targetUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com')
-              .replace('/expanded_assets/', '/download/');
-          } else {
-            githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
-          }
-        } else {
-          // 一般Github资源路径构建
-          try {
-            // 提取CDN路径
-            const cdnPathMatch = targetUrl.match(/https?:\/\/cdn\.[^\/]+\/(.+)/);
-            if(cdnPathMatch && cdnPathMatch[1]) {
-              // 尝试构建GitHub路径
-              const pathParts = cdnPathMatch[1].split('/');
-              if(pathParts.length >= 2) {
-                const owner = pathParts[0];
-                const repo = pathParts[1];
-                const remainingPath = pathParts.slice(2).join('/');
-                githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${remainingPath}`;
-              } else {
-                githubFallbackUrl = targetUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
-              }
-            } else {
-              // 如果无法解析路径，直接替换域名
-              githubFallbackUrl = targetUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
-            }
-          } catch(e) {
-            // 如果解析失败，直接替换域名
-            githubFallbackUrl = targetUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
-          }
-        }
-        
-        console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
-        
-        axiosClient.default.get(githubFallbackUrl, {
-          responseType: 'arraybuffer',
-          headers: {
-            ...headers,
-            'Host': new URL(githubFallbackUrl).host
-          },
-          timeout: 15000,
-          maxRedirects: 5
-        })
-        .then(fallbackResponse => {
-          if(res.headersSent) return;
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Cache-Control', 'public, max-age=3600');
-          res.statusCode = fallbackResponse.status;
-          res.end(fallbackResponse.data);
-          recordProxyRequest(req, startTime, fallbackResponse.status, extractRepoFromUrl(req.url));
-        })
-        .catch(fallbackError => {
-          console.error('GitHub备用请求错误:', fallbackError.message);
-          handleError(fallbackError, req, res);
-          recordProxyRequest(req, startTime, 404, extractRepoFromUrl(req.url));
-        });
-      }
-    });
-  } catch (error) {
-    console.error(`无效的URL: ${targetUrl}`, error.message);
-    handleError({ message: `无效的URL: ${targetUrl}` }, req, res);
-    recordProxyRequest(req, startTime, 400, null);
-  }
-};
-
 // 根据请求路径选择相应的处理函数
 const route = (req, res) => {
   try {
@@ -1059,8 +704,6 @@ const route = (req, res) => {
       handleAssetsRequest(req, res);
     } else if (req.url.startsWith('/codeload/')) {
       handleCodeloadRequest(req, res);
-    } else if (req.url.startsWith('/fragment/')) {
-      handleIncludeFragmentRequest(req, res);
     } else {
       handleGithubRequest(req, res);
     }

@@ -11,22 +11,7 @@ const createAxiosClient=(options={})=>{
       'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 GithubProxy/1.0'
     },
     retry:3,
-    retryDelay:1000,
-    // 添加http选项以控制连接行为
-    httpAgent:new require('http').Agent({
-      keepAlive:true,
-      maxSockets:100,
-      maxFreeSockets:10,
-      timeout:30000,
-      freeSocketTimeout:30000
-    }),
-    httpsAgent:new require('https').Agent({
-      keepAlive:true,
-      maxSockets:100,
-      maxFreeSockets:10,
-      timeout:30000,
-      freeSocketTimeout:30000
-    })
+    retryDelay:1000
   };
   
   const client=axios.create({...defaultOptions,...options});
