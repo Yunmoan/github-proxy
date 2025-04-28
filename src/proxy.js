@@ -106,12 +106,27 @@ const transformHtmlContent = (body, req) => {
   
   // 处理include-fragment元素，转换src属性
   body = body.replace(/<include-fragment([^>]*)src="([^"]*)"([^>]*)>/g, (match, pre, src, post) => {
-    // 如果是CDN链接，转换为我们的代理路径
-    if (src.includes('http')) {
-      return `<include-fragment${pre}src="/fragment/${src}"${post}>`;
+    // 如果是HTTP/HTTPS链接，转换为代理路径
+    if (src.startsWith('http')) {
+      // 提取有效的URL部分
+      const urlMatch = src.match(/^(https?:\/\/[^"'\s]+)/);
+      if (urlMatch) {
+        return `<include-fragment${pre}src="/fragment/${urlMatch[1]}"${post}>`;
+      }
     }
     
-    // 如果是相对路径，保持不变
+    // 相对路径保持不变
+    return match;
+  });
+  
+  // 修复资源地址访问问题，转换外部资源为代理路径
+  body = body.replace(/(src|href)="(https?:\/\/cdn\.[^"]+)"/g, (match, attr, url) => {
+    if (url.includes('/assets/') || url.includes('/images/') || 
+        url.includes('.js') || url.includes('.css') || 
+        url.includes('.png') || url.includes('.jpg') || 
+        url.includes('.svg') || url.includes('.ico')) {
+      return `${attr}="/fragment/${url}"`;
+    }
     return match;
   });
   
@@ -147,49 +162,76 @@ const processCSPHeader = (header, req) => {
   
   const host = req.headers.host;
   
-  // 修复：移除多余的域名和格式问题
-  // 1. 清理header中可能存在的重复项
-  header = header.replace(/cdn\.gh\.squarefield\.ltd(\s+cdn\.gh\.squarefield\.ltd)+/g, 'cdn.gh.squarefield.ltd');
-  
-  // 2. 修正connect-src指令中的格式问题
-  header = header.replace(/productionresultssa\*\.blob\.core\.windows\.net\//g, 'productionresultssa*.blob.core.windows.net');
-  
-  // 3. 修正frame-ancestors指令
-  header = header.replace(/frame-ancestors\s+([^;]+)/g, (match, sources) => {
-    if(sources.includes("'none'") && sources.trim() !== "'none'") {
-      return `frame-ancestors 'self'`; // 如果有none和其他值，就只用self
+  try {
+    // 将CSP头解析为指令对象
+    const directives = {};
+    
+    // 分割CSP指令
+    header.split(';').forEach(directive => {
+      directive = directive.trim();
+      if(!directive) return;
+      
+      const parts = directive.split(/\s+/);
+      if(parts.length < 1) return;
+      
+      const directiveName = parts[0];
+      const sources = parts.slice(1);
+      
+      directives[directiveName] = sources;
+    });
+    
+    // 特殊处理frame-ancestors指令，如果包含'none'则移除其他所有源
+    if(directives['frame-ancestors'] && directives['frame-ancestors'].includes("'none'")) {
+      directives['frame-ancestors'] = ["'none'"];
     }
-    return match;
-  });
-  
-  // 4. 移除URL末尾的斜杠
-  header = header.replace(/\.githubusercontent\.com\/(\s|$)/g, '.githubusercontent.com$1');
-  
-  // 替换策略，避免重复添加域名
-  const updatedHeader = header
-    .replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
-    .replace(/github\.com/g, `github.com ${host}`)
-    .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
-    .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
-    .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `)
-    .replace(/connect-src\s/g, `connect-src 'self' ${host} uploads.github.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com *.rel.tunnels.api.visualstudio.com objects-origin.githubusercontent.com copilot-proxy.githubusercontent.com proxy.individual.githubcopilot.com proxy.business.githubcopilot.com proxy.enterprise.githubcopilot.com *.actions.githubusercontent.com productionresultssa*.blob.core.windows.net github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com insights.github.com api.githubcopilot.com api.individual.githubcopilot.com api.business.githubcopilot.com api.enterprise.githubcopilot.com `)
-    .replace(/img-src\s/g, `img-src 'self' data: blob: ${host} github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com `)
-    .replace(/media-src\s/g, `media-src 'self' ${host} github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com `)
-    .replace(/font-src\s/g, `font-src 'self' data: ${host} github.githubassets.com raw.githubusercontent.com `)
-    .replace(/frame-src\s/g, `frame-src 'self' ${host} github.githubassets.com raw.githubusercontent.com `)
-    .replace(/worker-src\s/g, `worker-src 'self' blob: ${host} `)
-    .replace(/child-src\s/g, `child-src 'self' blob: ${host} `)
-    .replace(/object-src\s/g, `object-src 'self' ${host} `)
-    .replace(/manifest-src\s/g, `manifest-src 'self' ${host} `)
-    .replace(/prefetch-src\s/g, `prefetch-src 'self' ${host} `)
-    .replace(/navigate-to\s/g, `navigate-to 'self' ${host} `)
-    .replace(/form-action\s/g, `form-action 'self' ${host} `)
-    .replace(/base-uri\s/g, `base-uri 'self' ${host} `)
-    .replace(/frame-ancestors\s/g, `frame-ancestors 'self' `)
-    .replace(/upgrade-insecure-requests/g, '');
-  
-  // 移除重复添加的域名
-  return updatedHeader.replace(/cdn\.gh\.squarefield\.ltd(\s+cdn\.gh\.squarefield\.ltd)+/g, 'cdn.gh.squarefield.ltd');
+    
+    // 添加代理主机到每个指令
+    Object.keys(directives).forEach(directive => {
+      if(directive === 'upgrade-insecure-requests') {
+        // 删除此指令，因为我们使用HTTP
+        delete directives[directive];
+        return;
+      }
+      
+      // 源集合，避免重复
+      const sourceSet = new Set(directives[directive]);
+      
+      // 添加我们的主机
+      if(directive !== 'report-uri' && directive !== 'report-to' && !sourceSet.has("'none'")) {
+        sourceSet.add(host);
+        
+        if(directive === 'script-src' || directive === 'script-src-elem') {
+          sourceSet.add("'unsafe-inline'");
+          sourceSet.add("'unsafe-eval'");
+        }
+        
+        if(directive === 'style-src' || directive === 'style-src-elem') {
+          sourceSet.add("'unsafe-inline'");
+        }
+      }
+      
+      // 特殊处理：修复域名格式问题
+      const cleanedSources = Array.from(sourceSet).map(source => {
+        // 移除URL末尾的斜杠
+        if(source && typeof source === 'string') {
+          return source.replace(/\/+$/, '');
+        }
+        return source;
+      });
+      
+      directives[directive] = cleanedSources;
+    });
+    
+    // 重建CSP字符串
+    const newCSP = Object.entries(directives)
+      .map(([name, sources]) => `${name} ${sources.join(' ')}`)
+      .join('; ');
+    
+    return newCSP;
+  } catch(error) {
+    console.error('处理CSP头时出错:', error.message);
+    return header; // 出错时返回原始头
+  }
 };
 
 // 处理响应头，添加或修改CSP相关头部
@@ -753,155 +795,186 @@ const handleIncludeFragmentRequest = (req, res) => {
   // 支持多种域名的请求
   let targetUrl = fragmentUrl;
   if (!targetUrl.startsWith('http')) {
-    // 处理相对路径
-    const cdnMatch = targetUrl.match(/^cdn\.([^\/]+)(.*)/);
-    if (cdnMatch) {
+    // 处理相对路径，确保添加协议
+    if (targetUrl.startsWith('cdn.')) {
       targetUrl = `https://${targetUrl}`;
     } else {
       targetUrl = `${config.github.baseUrl}${fragmentUrl}`;
     }
   }
   
-  const parsedUrl = new URL(targetUrl);
-  const targetHost = parsedUrl.host;
-  
-  console.log(`处理include-fragment请求: ${targetUrl}`);
-  
-  // 特殊处理expanded_assets路径
-  if(targetUrl.includes('expanded_assets')) {
-    // 修复缺少文件扩展名的问题
-    if(!targetUrl.match(/\.[a-z0-9]+$/i)) {
-      targetUrl = `${targetUrl}.json`;
+  try {
+    // 规范化URL，避免格式问题
+    const urlObj = new URL(targetUrl);
+    targetUrl = urlObj.toString();
+    
+    // 移除URL末尾的斜杠
+    if (targetUrl.endsWith('/')) {
+      targetUrl = targetUrl.slice(0, -1);
     }
-  }
-  
-  const cacheKey = `fragment:${targetUrl}`;
-  
-  getOrSetCache(cacheKey, config.cache.maxAge, () => 
-    axiosClient.default.get(targetUrl, { 
-      responseType: 'arraybuffer',
-      headers: addRequiredHeaders({...req.headers, 'Accept': '*/*'}, targetHost),
-      timeout: 15000,
-      maxRedirects: 5
+    
+    const targetHost = urlObj.host;
+    
+    console.log(`处理include-fragment请求: ${targetUrl}`);
+    
+    // 特殊处理expanded_assets路径
+    if(targetUrl.includes('expanded_assets')) {
+      // 修复缺少文件扩展名的问题
+      if(!targetUrl.match(/\.[a-z0-9]+$/i)) {
+        targetUrl = `${targetUrl}.json`;
+      }
+    }
+    
+    const cacheKey = `fragment:${targetUrl}`;
+    
+    getOrSetCache(cacheKey, config.cache.maxAge, () => 
+      axiosClient.default.get(targetUrl, { 
+        responseType: 'arraybuffer',
+        headers: addRequiredHeaders({...req.headers, 'Accept': '*/*'}, targetHost),
+        timeout: 15000,
+        maxRedirects: 5
+      })
+    )
+    .then(response => {
+      if(res.headersSent) return;
+      
+      // 处理CORS头，确保允许跨域请求
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+      
+      // 处理并发送其他响应头
+      const processedHeaders = processResponseHeaders(response.headers, req);
+      Object.entries(processedHeaders).forEach(([key, value]) => {
+        if (key.toLowerCase() !== 'access-control-allow-origin' && 
+            key.toLowerCase() !== 'access-control-allow-methods' && 
+            key.toLowerCase() !== 'access-control-allow-headers' && 
+            key !== 'transfer-encoding' && 
+            key !== 'content-length') {
+          res.setHeader(key, value);
+        }
+      });
+      
+      // 设置缓存控制头
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
+      
+      // 设置正确的内容类型
+      const contentType = response.headers['content-type'] || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      
+      // 如果是HTML内容，转换链接
+      if (contentType.includes('text/html')) {
+        let html = response.data.toString('utf-8');
+        html = transformHtmlContent(html, req);
+        res.end(html);
+      } else {
+        res.end(response.data);
+      }
+      
+      recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
     })
-  )
-  .then(response => {
-    if(res.headersSent) return;
-    
-    // 处理CORS头，确保允许跨域请求
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    
-    // 处理并发送其他响应头
-    const processedHeaders = processResponseHeaders(response.headers, req);
-    Object.entries(processedHeaders).forEach(([key, value]) => {
-      if (key.toLowerCase() !== 'access-control-allow-origin' && 
-          key.toLowerCase() !== 'access-control-allow-methods' && 
-          key.toLowerCase() !== 'access-control-allow-headers' && 
-          key !== 'transfer-encoding' && 
-          key !== 'content-length') {
-        res.setHeader(key, value);
+    .catch(error => {
+      console.error('Fragment请求错误:', error.message);
+      
+      // 尝试不同的文件扩展名
+      if(targetUrl.includes('expanded_assets') && !error.message.includes('retry')) {
+        const extensions = ['.json', '.js', '.ts', '.css', '.txt', '.md'];
+        let currentExtension = '';
+        const baseUrl = targetUrl.replace(/\.[^/.]+$/, '');
+        
+        // 检查当前URL是否已有扩展名
+        const match = targetUrl.match(/\.([^/.]+)$/);
+        if(match) {
+          currentExtension = match[1];
+        }
+        
+        // 找出下一个要尝试的扩展名
+        let nextExtIndex = 0;
+        if(currentExtension) {
+          const currentIndex = extensions.findIndex(ext => ext.substring(1) === currentExtension);
+          nextExtIndex = currentIndex > -1 ? (currentIndex + 1) % extensions.length : 0;
+        }
+        
+        const nextUrl = `${baseUrl}${extensions[nextExtIndex]}`;
+        console.log(`尝试其他扩展名: ${nextUrl} (retry)`);
+        
+        axiosClient.default.get(nextUrl, {
+          responseType: 'arraybuffer',
+          headers: addRequiredHeaders({...req.headers, 'Accept': '*/*', 'User-Agent': `${req.headers['user-agent'] || getRandomUserAgent()} retry`}, targetHost),
+          timeout: 15000,
+          maxRedirects: 5
+        })
+        .then(response => {
+          if(res.headersSent) return;
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+          res.statusCode = response.status;
+          res.end(response.data);
+          recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
+        })
+        .catch(() => {
+          // 如果失败，尝试从GitHub获取
+          tryGitHubFallback();
+        });
+      } else {
+        // 直接尝试GitHub备用源
+        tryGitHubFallback();
+      }
+      
+      function tryGitHubFallback() {
+        // 尝试从URL中提取仓库路径和文件信息
+        const releaseMatch = targetUrl.match(/\/([^\/]+)\/([^\/]+)\/releases\/([^\/]+)\/([^\/]+)/);
+        
+        let githubFallbackUrl;
+        if(releaseMatch) {
+          const [_, owner, repo, releaseType, releaseInfo] = releaseMatch;
+          if(releaseType === 'expanded_assets') {
+            githubFallbackUrl = targetUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com')
+              .replace('/expanded_assets/', '/download/');
+          } else {
+            githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
+          }
+        } else {
+          // 提取CDN路径
+          const cdnPathMatch = targetUrl.match(/https?:\/\/cdn\.[^\/]+\/(.+)/);
+          if(cdnPathMatch && cdnPathMatch[1]) {
+            // 尝试构建GitHub路径
+            githubFallbackUrl = `https://raw.githubusercontent.com/${cdnPathMatch[1]}`;
+          } else {
+            // 如果无法解析路径，直接替换域名
+            githubFallbackUrl = targetUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
+          }
+        }
+        
+        console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
+        
+        axiosClient.default.get(githubFallbackUrl, {
+          responseType: 'arraybuffer',
+          headers: addRequiredHeaders({...req.headers, 'Accept': '*/*'}, new URL(githubFallbackUrl).host),
+          timeout: 15000,
+          maxRedirects: 5
+        })
+        .then(fallbackResponse => {
+          if(res.headersSent) return;
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          res.statusCode = fallbackResponse.status;
+          res.end(fallbackResponse.data);
+          recordProxyRequest(req, startTime, fallbackResponse.status, extractRepoFromUrl(req.url));
+        })
+        .catch(fallbackError => {
+          console.error('GitHub备用请求错误:', fallbackError.message);
+          handleError(fallbackError, req, res);
+          recordProxyRequest(req, startTime, 404, extractRepoFromUrl(req.url));
+        });
       }
     });
-    
-    // 设置缓存控制头
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
-    
-    res.statusCode = response.status;
-    res.end(response.data);
-    recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
-  })
-  .catch(error => {
-    console.error('Fragment请求错误:', error.message);
-    
-    // 尝试不同的文件扩展名
-    if(targetUrl.includes('expanded_assets') && !error.message.includes('retry')) {
-      const extensions = ['.json', '.js', '.ts', '.css', '.txt', '.md'];
-      let currentExtension = '';
-      const baseUrl = targetUrl.replace(/\.[^/.]+$/, '');
-      
-      // 检查当前URL是否已有扩展名
-      const match = targetUrl.match(/\.([^/.]+)$/);
-      if(match) {
-        currentExtension = match[1];
-      }
-      
-      // 找出下一个要尝试的扩展名
-      let nextExtIndex = 0;
-      if(currentExtension) {
-        const currentIndex = extensions.findIndex(ext => ext.substring(1) === currentExtension);
-        nextExtIndex = currentIndex > -1 ? (currentIndex + 1) % extensions.length : 0;
-      }
-      
-      const nextUrl = `${baseUrl}${extensions[nextExtIndex]}`;
-      console.log(`尝试其他扩展名: ${nextUrl} (retry)`);
-      
-      axiosClient.default.get(nextUrl, {
-        responseType: 'arraybuffer',
-        headers: addRequiredHeaders({...req.headers, 'Accept': '*/*', 'User-Agent': `${req.headers['user-agent'] || getRandomUserAgent()} retry`}, targetHost),
-        timeout: 15000,
-        maxRedirects: 5
-      })
-      .then(response => {
-        if(res.headersSent) return;
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
-        res.statusCode = response.status;
-        res.end(response.data);
-        recordProxyRequest(req, startTime, response.status, extractRepoFromUrl(req.url));
-      })
-      .catch(() => {
-        // 如果失败，尝试从GitHub获取
-        tryGitHubFallback();
-      });
-    } else {
-      // 直接尝试GitHub备用源
-      tryGitHubFallback();
-    }
-    
-    function tryGitHubFallback() {
-      // 尝试从URL中提取仓库路径和文件信息
-      const releaseMatch = targetUrl.match(/\/([^\/]+)\/([^\/]+)\/releases\/([^\/]+)\/([^\/]+)/);
-      
-      let githubFallbackUrl;
-      if(releaseMatch) {
-        const [_, owner, repo, releaseType, releaseInfo] = releaseMatch;
-        if(releaseType === 'expanded_assets') {
-          githubFallbackUrl = targetUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com')
-            .replace('/expanded_assets/', '/download/');
-        } else {
-          githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
-        }
-      } else {
-        // 一般情况直接替换域名
-        githubFallbackUrl = targetUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com');
-      }
-      
-      console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
-      
-      axiosClient.default.get(githubFallbackUrl, {
-        responseType: 'arraybuffer',
-        headers: addRequiredHeaders({...req.headers, 'Accept': '*/*'}, new URL(githubFallbackUrl).host),
-        timeout: 15000,
-        maxRedirects: 5
-      })
-      .then(fallbackResponse => {
-        if(res.headersSent) return;
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Cache-Control', 'public, max-age=3600');
-        res.statusCode = fallbackResponse.status;
-        res.end(fallbackResponse.data);
-        recordProxyRequest(req, startTime, fallbackResponse.status, extractRepoFromUrl(req.url));
-      })
-      .catch(fallbackError => {
-        console.error('GitHub备用请求错误:', fallbackError.message);
-        handleError(fallbackError, req, res);
-        recordProxyRequest(req, startTime, 404, extractRepoFromUrl(req.url));
-      });
-    }
-  });
+  } catch (error) {
+    console.error(`无效的URL: ${targetUrl}`, error.message);
+    handleError({ message: `无效的URL: ${targetUrl}` }, req, res);
+    recordProxyRequest(req, startTime, 400, null);
+  }
 };
 
 // 根据请求路径选择相应的处理函数

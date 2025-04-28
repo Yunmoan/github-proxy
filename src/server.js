@@ -114,14 +114,31 @@ const server = http.createServer((req, res) => {
       if(req.url.includes('cdn.')) {
         // 提取完整的CDN URL
         let cdnUrl;
+        let cdnPath = '';
+        
         if(req.url.includes('http')) {
-          const match = req.url.match(/https?:\/\/cdn\.[^"'\s]*/);
-          cdnUrl = match ? match[0] : null;
+          // URL中包含完整的CDN地址
+          const match = req.url.match(/https?:\/\/(cdn\.[^"'\s]*)/);
+          if(match && match[1]) {
+            cdnUrl = `https://${match[1]}`;
+            
+            // 规范化CDN URL格式
+            cdnUrl = cdnUrl.replace(/([^:])\/\/+/g, '$1/'); // 移除多余的斜杠
+            cdnUrl = cdnUrl.replace(/\/$/, ''); // 移除URL末尾的斜杠
+          }
         } else {
-          // 从请求路径中提取CDN网址
-          const cdnMatch = req.url.match(/\/fragment\/cdn\.([^\/]+)(.*)/);
+          // 从请求路径中提取CDN域名和路径
+          const cdnMatch = req.url.match(/\/fragment\/(cdn\.[^\/]+)(.*)/);
           if(cdnMatch) {
-            cdnUrl = `https://cdn.${cdnMatch[1]}${cdnMatch[2]}`;
+            const cdnDomain = cdnMatch[1];
+            cdnPath = cdnMatch[2] || '';
+            
+            // 规范化路径格式
+            if(cdnPath && !cdnPath.startsWith('/')) {
+              cdnPath = '/' + cdnPath;
+            }
+            
+            cdnUrl = `https://${cdnDomain}${cdnPath}`;
           }
         }
         
@@ -141,13 +158,22 @@ const server = http.createServer((req, res) => {
           }
         }
         
-        axios.get(cdnUrl, {
+        // 添加URL查询参数
+        const urlObj = new URL(cdnUrl);
+        urlObj.searchParams.append('_proxy', 'true'); // 标记这是代理请求
+        
+        // 发送请求
+        axios.get(urlObj.toString(), {
           responseType: 'arraybuffer',
           timeout: 15000,
           maxRedirects: 5,
           headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36',
-            'Accept': '*/*'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
           }
         })
         .then(response => {
@@ -195,8 +221,9 @@ const server = http.createServer((req, res) => {
               timeout: 15000,
               maxRedirects: 5,
               headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 retry',
-                'Accept': '*/*'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36 retry',
+                'Accept': '*/*',
+                'Cache-Control': 'no-cache'
               }
             })
             .then(response => {
@@ -224,14 +251,20 @@ const server = http.createServer((req, res) => {
             if(releaseMatch) {
               const [_, owner, repo, releaseType, releaseInfo] = releaseMatch;
               if(releaseType === 'expanded_assets') {
-                githubFallbackUrl = cdnUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com')
+                githubFallbackUrl = cdnUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com')
                   .replace('/expanded_assets/', '/download/');
               } else {
                 githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
               }
             } else {
-              // 一般情况直接替换域名
-              githubFallbackUrl = cdnUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com');
+              // 一般情况使用GitHub原始内容服务
+              const cdnPathMatch = cdnUrl.match(/https?:\/\/cdn\.[^\/]+\/(.+)/);
+              if(cdnPathMatch && cdnPathMatch[1]) {
+                githubFallbackUrl = `https://raw.githubusercontent.com/${cdnPathMatch[1]}`;
+              } else {
+                // 如果无法解析路径，直接替换域名
+                githubFallbackUrl = cdnUrl.replace(/https?:\/\/cdn\.[^\/]+/, 'https://raw.githubusercontent.com');
+              }
             }
             
             console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
@@ -239,7 +272,12 @@ const server = http.createServer((req, res) => {
             axios.get(githubFallbackUrl, {
               responseType: 'arraybuffer',
               timeout: 15000,
-              maxRedirects: 5
+              maxRedirects: 5,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Cache-Control': 'no-cache'
+              }
             })
             .then(fallbackResponse => {
               if(res.headersSent) return;
