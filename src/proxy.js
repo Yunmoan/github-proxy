@@ -124,14 +124,17 @@ const processCSPHeader = (header, req) => {
   if(!header) return header;
   
   const host = req.headers.host;
+  const protocol = req.headers['x-forwarded-proto'] || 'http';
   
   // 修改CSP策略，将我们的代理域名添加到各个指令中
   return header.replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
                .replace(/github\.com/g, `github.com ${host}`)
                .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
-               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
-               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `)
-               .replace(/img-src\s/g, `img-src 'self' data: blob: ${host} `);
+               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${protocol}://${host} `)
+               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${protocol}://${host} `)
+               .replace(/img-src\s/g, `img-src 'self' data: blob: ${protocol}://${host} `)
+               .replace(/https:/g, `${protocol}:`);
+
 };
 
 // 处理响应头，添加或修改CSP相关头部
