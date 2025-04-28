@@ -23,7 +23,13 @@ const proxy = httpProxy.createProxyServer({
   selfHandleResponse: true,
   timeout: 60000, // 60秒超时
   proxyTimeout: 60000, // 添加代理超时设置
-  socketTimeout: 90000 // 添加socket超时设置
+  socketTimeout: 90000, // 添加socket超时设置
+  ws: true // 启用WebSocket支持
+});
+
+// 增加最大监听器数量以防止内存泄漏警告
+proxy.on('proxyReq', (proxyReq) => {
+  proxyReq.socket.setMaxListeners(20);
 });
 
 // 设置代理错误处理
@@ -94,13 +100,27 @@ const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
   const protocol = req.headers['x-forwarded-proto'] || 'http';
-  return body
+  let transformedBody = body
     .replace(/https?:\/\/github\.com/g, `${protocol}://${req.headers.host}`)
     .replace(/https?:\/\/api\.github\.com/g, `${protocol}://${req.headers.host}/api`)
     .replace(/https?:\/\/raw\.githubusercontent\.com/g, `${protocol}://${req.headers.host}/raw`)
     .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `${protocol}://${req.headers.host}/releases`)
     .replace(/https?:\/\/github\.githubassets\.com/g, `${protocol}://${req.headers.host}/assets`)
     .replace(/https?:\/\/codeload\.github\.com/g, `${protocol}://${req.headers.host}/codeload`);
+
+  // 处理Turbo脚本，将其从body移动到head
+  const turboScriptRegex = /<script[^>]*src="[^"]*turbo[^"]*"[^>]*><\/script>/i;
+  const turboScriptMatch = transformedBody.match(turboScriptRegex);
+  
+  if (turboScriptMatch) {
+    const turboScript = turboScriptMatch[0];
+    // 从body中移除Turbo脚本
+    transformedBody = transformedBody.replace(turboScript, '');
+    // 将Turbo脚本添加到head标签的末尾
+    transformedBody = transformedBody.replace('</head>', `${turboScript}</head>`);
+  }
+  
+  return transformedBody;
 };
 
 // 处理自定义页面
