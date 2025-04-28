@@ -101,6 +101,18 @@ const transformHtmlContent = (body, req) => {
     '<head>$1<script$3turbo$4>$5</script></head>'
   );
   
+  // 为带有repository-container-header的body标签添加data-turbo-suppress-warning属性
+  body = body.replace(
+    /<body([^>]*)id="repository-container-header"/i,
+    '<body$1id="repository-container-header" data-turbo-suppress-warning'
+  );
+  
+  // 为所有body标签添加data-turbo-suppress-warning属性
+  body = body.replace(
+    /<body([^>]*)>/i,
+    '<body$1 data-turbo-suppress-warning>'
+  );
+  
   return body
     .replace(/https?:\/\/github\.com/g, `http://${req.headers.host}`)
     .replace(/https?:\/\/api\.github\.com/g, `http://${req.headers.host}/api`)
@@ -138,7 +150,7 @@ const processCSPHeader = (header, req) => {
                .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
                .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} *.squarefield.ltd *.gh.squarefield.ltd `)
                .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} *.squarefield.ltd *.gh.squarefield.ltd `)
-               .replace(/connect-src\s/g, `connect-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self `)
+               .replace(/connect-src\s/g, `connect-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self 'self' https://api.github.com ${host}/api ${host}/raw ${host}/assets ${host}/releases ${host}/codeload *.githubusercontent.com *.github.com objects-origin.githubusercontent.com github-cloud.s3.amazonaws.com github-production-*.s3.amazonaws.com wss://*.actions.githubusercontent.com wss://alive.github.com `)
                .replace(/img-src\s/g, `img-src ${host} *.squarefield.ltd *.gh.squarefield.ltd data: self `)
                .replace(/frame-src\s/g, `frame-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self `);
 };

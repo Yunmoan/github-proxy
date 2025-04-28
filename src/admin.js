@@ -23,7 +23,7 @@ const JWT_EXPIRE = '24h'; // Token有效期24小时
 const AUTH_TOKEN = process.env.ADMIN_TOKEN; // 默认令牌，建议在生产中修改
 
 // 允许的IP地址白名单
-const ALLOWED_IPS = process.env.ADMIN_ALLOWED_IPS ? process.env.ADMIN_ALLOWED_IPS.split(',') : ['127.0.0.1', '::1'];
+const ALLOWED_IPS = process.env.ADMIN_ALLOWED_IPS ? process.env.ADMIN_ALLOWED_IPS.split(',') : ['0.0.0.0', '::1'];
 
 // 请求统计
 const stats = {
