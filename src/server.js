@@ -7,6 +7,10 @@ const { handleError, serveCustomErrorPage } = require('./errorHandler');
 const { blockBlacklistedContent } = require('./blacklist');
 const admin = require('./admin'); // 导入admin模块
 const axios = require('axios');
+const events = require('events'); // 导入events模块
+
+// 增加默认最大监听器数量，避免内存泄漏警告
+events.defaultMaxListeners = 20;
 
 // 请求超时设置
 const REQUEST_TIMEOUT = 3 * 60 * 1000; // 3分钟
@@ -15,6 +19,17 @@ const REQUEST_TIMEOUT = 3 * 60 * 1000; // 3分钟
 const server = http.createServer((req, res) => {
   // 捕获整个请求处理过程中的异常
   try {
+    // 处理OPTIONS请求（CORS预检请求）
+    if (req.method === 'OPTIONS') {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+      res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization');
+      res.setHeader('Access-Control-Max-Age', '86400'); // 24小时缓存预检请求
+      res.statusCode = 204; // No Content
+      res.end();
+      return;
+    }
+    
     // 设置请求超时
     req.setTimeout(REQUEST_TIMEOUT);
     res.setTimeout(REQUEST_TIMEOUT);
@@ -54,11 +69,14 @@ const server = http.createServer((req, res) => {
       }
     });
     
-    // 添加Socket错误监听
-    req.socket.on('error', (err) => {
-      console.error(`Socket错误(${req.socket.remoteAddress}): ${err.message}`);
-      // 不需要做额外处理，http.Server会自动处理socket错误
-    });
+    // 添加Socket错误监听，使用Symbol标记是否已添加监听器
+    if(!req.socket._errorHandlerAdded) {
+      req.socket._errorHandlerAdded = true;
+      req.socket.on('error', (err) => {
+        console.error(`Socket错误(${req.socket.remoteAddress}): ${err.message}`);
+        // 不需要做额外处理，http.Server会自动处理socket错误
+      });
+    }
     
     // 如果是静态文件请求且文件不存在，直接返回404
     if(req.url.match(/\.(html|js|css|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/i)) {
@@ -90,6 +108,138 @@ const server = http.createServer((req, res) => {
           });
           return;
         }
+      }
+      
+      // 检查是否是CDN资源请求
+      if(req.url.includes('cdn.gh.squarefield.ltd')) {
+        // 提取完整的CDN URL
+        let cdnUrl;
+        if(req.url.includes('http')) {
+          const match = req.url.match(/https?:\/\/cdn\.gh\.squarefield\.ltd[^"'\s]*/);
+          cdnUrl = match ? match[0] : null;
+        } else {
+          cdnUrl = `https://cdn.gh.squarefield.ltd${req.url.replace('/fragment/cdn.gh.squarefield.ltd', '')}`;
+        }
+        
+        if(!cdnUrl) {
+          console.error('无法解析CDN URL:', req.url);
+          serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+          return;
+        }
+        
+        console.log(`处理CDN请求: ${cdnUrl}`);
+        
+        // 特殊处理expanded_assets路径
+        if(cdnUrl.includes('expanded_assets')) {
+          // 修复缺少文件扩展名的问题
+          if(!cdnUrl.match(/\.[a-z0-9]+$/i)) {
+            cdnUrl = `${cdnUrl}.json`;
+          }
+        }
+        
+        axios.get(cdnUrl, {
+          responseType: 'arraybuffer',
+          timeout: 15000,
+          maxRedirects: 5,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36',
+            'Accept': '*/*'
+          }
+        })
+        .then(response => {
+          if(res.headersSent) return;
+          
+          // 处理CORS头，确保允许跨域请求
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+          
+          // 设置缓存控制头
+          res.setHeader('Cache-Control', 'public, max-age=3600'); // 1小时缓存
+          res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+          
+          res.statusCode = response.status;
+          res.end(response.data);
+        })
+        .catch(error => {
+          console.error('CDN请求错误:', error.message);
+          
+          // 尝试不同的文件扩展名
+          if(cdnUrl.includes('expanded_assets') && !error.message.includes('retry')) {
+            const extensions = ['.json', '.js', '.ts', '.css', '.txt', '.md'];
+            let currentExtension = '';
+            const baseUrl = cdnUrl.replace(/\.[^/.]+$/, '');
+            
+            // 检查当前URL是否已有扩展名
+            const match = cdnUrl.match(/\.([^/.]+)$/);
+            if(match) {
+              currentExtension = match[1];
+            }
+            
+            // 找出下一个要尝试的扩展名
+            let nextExtIndex = 0;
+            if(currentExtension) {
+              const currentIndex = extensions.findIndex(ext => ext.substring(1) === currentExtension);
+              nextExtIndex = currentIndex > -1 ? (currentIndex + 1) % extensions.length : 0;
+            }
+            
+            const nextUrl = `${baseUrl}${extensions[nextExtIndex]}`;
+            console.log(`尝试其他扩展名: ${nextUrl} (retry)`);
+            
+            axios.get(nextUrl, {
+              responseType: 'arraybuffer',
+              timeout: 15000,
+              maxRedirects: 5,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 retry',
+                'Accept': '*/*'
+              }
+            })
+            .then(response => {
+              if(res.headersSent) return;
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Cache-Control', 'public, max-age=3600');
+              res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream');
+              res.statusCode = response.status;
+              res.end(response.data);
+            })
+            .catch(() => {
+              // 如果失败，尝试从GitHub获取
+              tryGitHubFallback();
+            });
+          } else {
+            // 直接尝试GitHub备用源
+            tryGitHubFallback();
+          }
+          
+          function tryGitHubFallback() {
+            // 尝试从GitHub直接获取
+            const githubFallbackUrl = cdnUrl
+              .replace('cdn.gh.squarefield.ltd', 'raw.githubusercontent.com')
+              .replace('/ZGIT-Network/OpenFrp-CrossPlatformLauncher/releases/expanded_assets/', '/ZGIT-Network/OpenFrp-CrossPlatformLauncher/releases/download/');
+            
+            console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
+            
+            axios.get(githubFallbackUrl, {
+              responseType: 'arraybuffer',
+              timeout: 15000,
+              maxRedirects: 5
+            })
+            .then(fallbackResponse => {
+              if(res.headersSent) return;
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              res.setHeader('Cache-Control', 'public, max-age=3600');
+              res.statusCode = fallbackResponse.status;
+              res.end(fallbackResponse.data);
+            })
+            .catch(fallbackError => {
+              console.error('GitHub备用请求错误:', fallbackError.message);
+              res.statusCode = 404;
+              serveCustomErrorPage(config.customPages.notFoundPath, res, 404);
+            });
+          }
+        });
+        return;
       }
       
       // 修改：优先检查public目录下的文件
