@@ -244,8 +244,9 @@ const formatBytes = (bytes) => {
 
 // 验证IP访问权限
 const isIPAllowed = (req) => {
-  const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-  return ALLOWED_IPS.includes('*') || ALLOWED_IPS.some(ip => clientIP.includes(ip));
+  // const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  // return ALLOWED_IPS.includes('*') || ALLOWED_IPS.some(ip => clientIP.includes(ip));
+  return true;
 };
 
 // 检查鉴权 (支持Token和JWT两种认证方式)

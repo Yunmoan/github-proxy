@@ -139,6 +139,11 @@ const processCSPHeader = (header, req) => {
     processedHeader = processedHeader.replace(/img-src\s/g, `img-src 'self' data: blob: ${protocol}://${host} `);
   }
   
+  // 如果存在connect-src指令，添加我们的域名
+  if(header.includes('connect-src')) {
+    processedHeader = processedHeader.replace(/connect-src\s/g, `connect-src 'self' ${protocol}://${host} `);
+  }
+  
   // 更智能地处理协议转换
   // 只替换特定域名的协议，而不是替换所有https:
   return processedHeader
