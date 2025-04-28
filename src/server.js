@@ -62,6 +62,36 @@ const server = http.createServer((req, res) => {
     
     // 如果是静态文件请求且文件不存在，直接返回404
     if(req.url.match(/\.(html|js|css|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/i)) {
+      // 特殊处理favicon.ico
+      if(req.url === '/favicon.ico') {
+        const faviconPath = path.join(process.cwd(), 'public', 'favicon.ico');
+        if(fs.existsSync(faviconPath)) {
+          res.setHeader('Content-Type', 'image/x-icon');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          fs.createReadStream(faviconPath).pipe(res);
+          return;
+        } else {
+          // 从GitHub获取默认favicon
+          axios.get('https://github.githubassets.com/favicon.ico', {
+            responseType: 'arraybuffer',
+            timeout: 5000
+          })
+          .then(response => {
+            if(res.headersSent) return;
+            res.setHeader('Content-Type', 'image/x-icon');
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            res.statusCode = response.status;
+            res.end(response.data);
+          })
+          .catch(error => {
+            console.error('获取favicon失败:', error.message);
+            res.statusCode = 404;
+            res.end();
+          });
+          return;
+        }
+      }
+      
       // 修改：优先检查public目录下的文件
       const publicFilePath = path.join(process.cwd(), 'public', req.url.startsWith('/') ? req.url.substring(1) : req.url);
       const filePath = path.join(process.cwd(), req.url.startsWith('/') ? req.url.substring(1) : req.url);

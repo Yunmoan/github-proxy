@@ -20,7 +20,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-please-c
 const JWT_EXPIRE = '24h'; // Token有效期24小时
 
 // 简单的鉴权 - 在实际生产中应使用更强的鉴权机制
-const AUTH_TOKEN = process.env.ADMIN_TOKEN || 'admin123'; // 默认令牌，建议在生产中修改
+const AUTH_TOKEN = process.env.ADMIN_TOKEN; // 默认令牌，建议在生产中修改
 
 // 允许的IP地址白名单
 const ALLOWED_IPS = process.env.ADMIN_ALLOWED_IPS ? process.env.ADMIN_ALLOWED_IPS.split(',') : ['127.0.0.1', '::1'];

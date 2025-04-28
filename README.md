@@ -158,13 +158,11 @@ npm run dev
 | /admin/users/change-password | POST | 修改指定用户密码 |
 | /admin/users/change-my-password | POST | 修改当前登录用户的密码 |
 
-所有管理API请求(除登录API外)需要在请求头中携带Authorization: Bearer {token}作为JWT令牌认证，或者使用传统方式Authorization: Bearer {token}，默认令牌为'admin123'，可通过环境变量 ADMIN_TOKEN 修改。
-
 ### 用户管理
 
 系统内置了用户管理功能：
 
-1. 默认管理员账号: admin / admin123
+1. 默认管理员账号: admin / admin123 (注意及时修改密码)
 2. 支持用户认证模式: 
    - 传统令牌认证(TOKEN)
    - JWT认证(用于网页管理系统)
@@ -175,8 +173,8 @@ npm run dev
 
 系统提供了完整的Web管理界面，可通过以下方式访问：
 
-1. **登录页面**: http://your-domain.com/admin/login.html
-2. **管理控制台**: http://your-domain.com/admin/dashboard.html (需要先登录)
+1. **登录页面**: http://cdn.gh.squarefield.ltd/admin/login.html
+2. **管理控制台**: http://cdn.gh.squarefield.ltd/admin/dashboard.html (需要先登录)
 
 管理控制台功能：
 - 系统监控: 实时显示系统运行状态、内存使用、CPU负载等
@@ -191,25 +189,25 @@ npm run dev
 **直接访问仓库**
 
 ```
-http://your-domain.com/username/repo
+http://cdn.gh.squarefield.ltd/username/repo
 ```
 
 **访问Raw内容**
 
 ```
-http://your-domain.com/raw/username/repo/branch/path/to/file
+http://cdn.gh.squarefield.ltd/raw/username/repo/branch/path/to/file
 ```
 
 **访问API**
 
 ```
-http://your-domain.com/api/repos/username/repo
+http://cdn.gh.squarefield.ltd/api/repos/username/repo
 ```
 
 **下载Release文件**
 
 ```
-http://your-domain.com/releases/username/repo/releases/download/v1.0/file.zip
+http://cdn.gh.squarefield.ltd/releases/username/repo/releases/download/v1.0/file.zip
 ```
 
 ## 环境变量
@@ -326,4 +324,4 @@ docker run -p 3000:3000 github-proxy
 
 ## License
 
-MIT 
+MIT License

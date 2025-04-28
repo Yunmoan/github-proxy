@@ -92,6 +92,17 @@ const transformGithubUrl = (url, req) => {
 const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
+  // 添加Turbo警告抑制属性
+  body = body.replace(/<body([^>]*)>/, '<body$1 data-turbo-suppress-warning>');
+  
+  // 移动Turbo脚本到head
+  const turboScript = body.match(/<script[^>]*src="[^"]*turbo[^"]*"[^>]*><\/script>/);
+  if (turboScript) {
+    body = body.replace(turboScript[0], '');
+    body = body.replace(/<\/head>/, `${turboScript[0]}</head>`);
+  }
+  
+  // 转换GitHub域名
   return body
     .replace(/https?:\/\/github\.com/g, `http://${req.headers.host}`)
     .replace(/https?:\/\/api\.github\.com/g, `http://${req.headers.host}/api`)
@@ -149,6 +160,11 @@ const processResponseHeaders = (headers, req) => {
     delete result['x-frame-options'];
     delete result['X-Frame-Options'];
   }
+  
+  // 添加必要的安全头
+  result['X-Content-Type-Options'] = 'nosniff';
+  result['X-XSS-Protection'] = '1; mode=block';
+  result['Referrer-Policy'] = 'strict-origin-when-cross-origin';
   
   return result;
 };
