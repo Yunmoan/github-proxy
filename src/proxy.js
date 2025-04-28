@@ -119,7 +119,9 @@ const transformHtmlContent = (body, req) => {
     .replace(/https?:\/\/raw\.githubusercontent\.com/g, `http://${req.headers.host}/raw`)
     .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `http://${req.headers.host}/releases`)
     .replace(/https?:\/\/github\.githubassets\.com/g, `http://${req.headers.host}/assets`)
-    .replace(/https?:\/\/codeload\.github\.com/g, `http://${req.headers.host}/codeload`);
+    .replace(/https?:\/\/codeload\.github\.com/g, `http://${req.headers.host}/codeload`)
+    .replace(/https?:\/\/[^\/]+\/([^\/]+\/[^\/]+)\/releases\/expanded_assets\//g, `http://${req.headers.host}/$1/releases/expanded_assets/`)
+    .replace(/\/api\/_private\//g, `/api/_private/`); // 保留_private路径
 };
 
 // 处理自定义页面
@@ -138,21 +140,31 @@ const getOrSetCache = (cacheKey, maxAge, fetchCallback) => {
   });
 };
 
-// 处理内容安全策略(CSP)头
-const processCSPHeader = (header, req) => {
-  if(!header) return header;
+// 处理CSP头
+const processCSPHeader = (header, host) => {
+  if (!header) return header;
   
-  const host = req.headers.host;
+  // 解析CSP指令并构建新指令集
+  const domains = [`'self'`, host, `${host}/assets`, `${host}/raw`, `${host}/api`, `${host}/releases`, `${host}/expanded_assets`, `${host}/api/_private`, `cdn.gh.squarefield.ltd`, `*.githubusercontent.com`, `*.githubassets.com`, `data:`, `blob:`, `unsafe-inline`, `unsafe-eval`];
   
-  // 修改CSP策略，将我们的代理域名添加到各个指令中
-  return header.replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
-               .replace(/github\.com/g, `github.com ${host}`)
-               .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
-               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} *.squarefield.ltd *.gh.squarefield.ltd `)
-               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} *.squarefield.ltd *.gh.squarefield.ltd `)
-               .replace(/connect-src\s/g, `connect-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self 'self' https://api.github.com ${host}/api ${host}/raw ${host}/assets ${host}/releases ${host}/codeload *.githubusercontent.com *.github.com objects-origin.githubusercontent.com github-cloud.s3.amazonaws.com github-production-*.s3.amazonaws.com wss://*.actions.githubusercontent.com wss://alive.github.com `)
-               .replace(/img-src\s/g, `img-src ${host} *.squarefield.ltd *.gh.squarefield.ltd data: self `)
-               .replace(/frame-src\s/g, `frame-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self `);
+  // 构建简化的CSP指令
+  const directives = {
+    'default-src': [`'self'`, host],
+    'script-src': [...domains, `'unsafe-inline'`, `'unsafe-eval'`],
+    'style-src': [...domains, `'unsafe-inline'`],
+    'img-src': [...domains, `data:`, `blob:`, `avatars.githubusercontent.com`, `repository-images.githubusercontent.com`],
+    'connect-src': [...domains, `wss://${host}`, `cdn.gh.squarefield.ltd`, `cdn.gh.squarefield.ltd/api/_private/*`, `github.com`, `api.github.com`],
+    'font-src': [...domains, `data:`, `github.githubassets.com`],
+    'frame-src': [...domains, `render.githubusercontent.com`],
+    'media-src': [...domains, `data:`, `blob:`],
+    'worker-src': [`'self'`, host, `blob:`, `github.com`],
+    'manifest-src': [`'self'`, host, `github.githubassets.com`]
+  };
+
+  // 生成新的CSP头
+  return Object.entries(directives)
+    .map(([directive, values]) => `${directive} ${[...new Set(values)].join(' ')}`)
+    .join('; ');
 };
 
 // 处理响应头，添加或修改CSP相关头部
@@ -161,11 +173,11 @@ const processResponseHeaders = (headers, req) => {
   
   // 处理各种CSP相关头部
   if(result['content-security-policy']) {
-    result['content-security-policy'] = processCSPHeader(result['content-security-policy'], req);
+    result['content-security-policy'] = processCSPHeader(result['content-security-policy'], req.headers.host);
   }
   
   if(result['Content-Security-Policy']) {
-    result['Content-Security-Policy'] = processCSPHeader(result['Content-Security-Policy'], req);
+    result['Content-Security-Policy'] = processCSPHeader(result['Content-Security-Policy'], req.headers.host);
   }
   
   // 处理X-Frame-Options，允许在我们的代理中嵌入内容

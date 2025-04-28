@@ -87,7 +87,7 @@ const handleError=(error,req,res)=>{
         serveCustomErrorPage(config.customPages.notFoundPath,res,404);
       });
     }else{
-      serveCustomErrorPage(config.customPages.notFoundPath,res,404);
+    serveCustomErrorPage(config.customPages.notFoundPath,res,404);
     }
   }else if(status===403){
     serveCustomErrorPage(config.customPages.forbiddenPath,res,403);
