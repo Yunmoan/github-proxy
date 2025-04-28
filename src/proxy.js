@@ -32,6 +32,11 @@ proxy.on('proxyReq', (proxyReq) => {
   proxyReq.socket.setMaxListeners(20);
 });
 
+// Set max listeners for proxy websocket connections
+proxy.on('upgrade', (req, socket) => {
+  socket.setMaxListeners(20);
+});
+
 // 设置代理错误处理
 proxy.on('error', (err, req, res) => {
   console.error('代理服务器错误:', err.message);
@@ -95,7 +100,7 @@ const transformGithubUrl = (url, req) => {
     .replace(/https?:\/\/codeload\.github\.com/g, `${protocol}://${host}/codeload`);
 };
 
-// 转换HTML内容中的链接
+// 转换HTML内容中的链接和CSS
 const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
@@ -106,7 +111,10 @@ const transformHtmlContent = (body, req) => {
     .replace(/https?:\/\/raw\.githubusercontent\.com/g, `${protocol}://${req.headers.host}/raw`)
     .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `${protocol}://${req.headers.host}/releases`)
     .replace(/https?:\/\/github\.githubassets\.com/g, `${protocol}://${req.headers.host}/assets`)
-    .replace(/https?:\/\/codeload\.github\.com/g, `${protocol}://${req.headers.host}/codeload`);
+    .replace(/https?:\/\/codeload\.github\.com/g, `${protocol}://${req.headers.host}/codeload`)
+    // 替换-ms-high-contrast为新的Forced Colors Mode标准
+    .replace(/\s*-ms-high-contrast\s*:\s*[^;]+;/g, '')
+    .replace(/@media\s+\(-ms-high-contrast:[^{]+{([^}]+)}/g, '@media (forced-colors: active) {$1}');
 
   // 处理Turbo脚本，将其从body移动到head
   const turboScriptRegex = /<script[^>]*src="[^"]*turbo[^"]*"[^>]*><\/script>/i;
@@ -152,7 +160,8 @@ const processCSPHeader = (header, req) => {
     .replace(/github\.com/g, `github.com ${host}`)
     .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
     .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${protocol}://${host} `)
-    .replace(/style-src\s/g, `style-src 'unsafe-inline' ${protocol}://${host} `);
+    .replace(/style-src\s/g, `style-src 'unsafe-inline' ${protocol}://${host} 'unsafe-hashes' `)
+    .replace(/style-src-elem\s/g, `style-src-elem 'unsafe-inline' ${protocol}://${host} 'unsafe-hashes' `);
   
   // 如果存在img-src指令，也添加我们的域名
   if(header.includes('img-src')) {

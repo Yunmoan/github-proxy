@@ -60,6 +60,9 @@ const server = http.createServer((req, res) => {
       // 不需要做额外处理，http.Server会自动处理socket错误
     });
     
+    // 设置最大监听器数量以避免内存泄漏警告
+    req.socket.setMaxListeners(20);
+    
     // 如果是静态文件请求且文件不存在，直接返回404
     if(req.url.match(/\.(html|js|css|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$/i)) {
       // 修改：优先检查public目录下的文件
@@ -227,4 +230,4 @@ server.listen(config.server.port, config.server.host, () => {
   
   // 启动CPU监控
   admin.startCpuMonitoring();
-}); 
+});
