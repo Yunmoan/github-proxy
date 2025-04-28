@@ -92,6 +92,15 @@ const transformGithubUrl = (url, req) => {
 const transformHtmlContent = (body, req) => {
   if (!body || typeof body !== 'string') return body;
   
+  // 将body标签内的turbo.js脚本移到head标签内
+  body = body.replace(
+    /<body(.*?)>([\s\S]*?)<script(.*?)turbo(.*?)>([\s\S]*?)<\/script>/i,
+    '<body$1>$2'
+  ).replace(
+    /<head>([\s\S]*?)<\/head>/i,
+    '<head>$1<script$3turbo$4>$5</script></head>'
+  );
+  
   return body
     .replace(/https?:\/\/github\.com/g, `http://${req.headers.host}`)
     .replace(/https?:\/\/api\.github\.com/g, `http://${req.headers.host}/api`)
@@ -127,8 +136,11 @@ const processCSPHeader = (header, req) => {
   return header.replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
                .replace(/github\.com/g, `github.com ${host}`)
                .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
-               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
-               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `);
+               .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} *.squarefield.ltd *.gh.squarefield.ltd `)
+               .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} *.squarefield.ltd *.gh.squarefield.ltd `)
+               .replace(/connect-src\s/g, `connect-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self `)
+               .replace(/img-src\s/g, `img-src ${host} *.squarefield.ltd *.gh.squarefield.ltd data: self `)
+               .replace(/frame-src\s/g, `frame-src ${host} *.squarefield.ltd *.gh.squarefield.ltd self `);
 };
 
 // 处理响应头，添加或修改CSP相关头部

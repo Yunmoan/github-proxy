@@ -7,9 +7,13 @@ const { handleError, serveCustomErrorPage } = require('./errorHandler');
 const { blockBlacklistedContent } = require('./blacklist');
 const admin = require('./admin'); // 导入admin模块
 const axios = require('axios');
+const events = require('events');
 
 // 请求超时设置
 const REQUEST_TIMEOUT = 3 * 60 * 1000; // 3分钟
+
+// 在服务器初始化时增加
+events.EventEmitter.defaultMaxListeners = 20; // 将默认限制提高到20或更高
 
 // 创建HTTP服务器
 const server = http.createServer((req, res) => {
