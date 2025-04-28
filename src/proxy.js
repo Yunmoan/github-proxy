@@ -107,12 +107,7 @@ const transformHtmlContent = (body, req) => {
   // 处理include-fragment元素，转换src属性
   body = body.replace(/<include-fragment([^>]*)src="([^"]*)"([^>]*)>/g, (match, pre, src, post) => {
     // 如果是CDN链接，转换为我们的代理路径
-    if (src.includes('cdn.gh.squarefield.ltd')) {
-      return `<include-fragment${pre}src="/fragment/${src}"${post}>`;
-    }
-    
-    // 如果是绝对URL，转换为我们的代理路径
-    if (src.startsWith('http')) {
+    if (src.includes('http')) {
       return `<include-fragment${pre}src="/fragment/${src}"${post}>`;
     }
     
@@ -127,8 +122,7 @@ const transformHtmlContent = (body, req) => {
     .replace(/https?:\/\/raw\.githubusercontent\.com/g, `http://${host}/raw`)
     .replace(/https?:\/\/github-releases\.githubusercontent\.com/g, `http://${host}/releases`)
     .replace(/https?:\/\/github\.githubassets\.com/g, `http://${host}/assets`)
-    .replace(/https?:\/\/codeload\.github\.com/g, `http://${host}/codeload`)
-    .replace(/https?:\/\/cdn\.gh\.squarefield\.ltd/g, `http://${host}/fragment/cdn.gh.squarefield.ltd`);
+    .replace(/https?:\/\/codeload\.github\.com/g, `http://${host}/codeload`);
 };
 
 // 处理自定义页面
@@ -153,28 +147,49 @@ const processCSPHeader = (header, req) => {
   
   const host = req.headers.host;
   
-  // 修改CSP策略，将我们的代理域名添加到各个指令中
-  return header
-    .replace(/github\.githubassets\.com/g, `github.githubassets.com ${host} cdn.gh.squarefield.ltd`)
-    .replace(/github\.com/g, `github.com ${host} cdn.gh.squarefield.ltd`)
-    .replace(/githubusercontent\.com/g, `githubusercontent.com ${host} cdn.gh.squarefield.ltd`)
-    .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/connect-src\s/g, `connect-src 'self' ${host} cdn.gh.squarefield.ltd uploads.github.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com *.rel.tunnels.api.visualstudio.com objects-origin.githubusercontent.com copilot-proxy.githubusercontent.com proxy.individual.githubcopilot.com proxy.business.githubcopilot.com proxy.enterprise.githubcopilot.com *.actions.githubusercontent.com productionresultssa*.blob.core.windows.net/ github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com insights.github.com api.githubcopilot.com api.individual.githubcopilot.com api.business.githubcopilot.com api.enterprise.githubcopilot.com `)
-    .replace(/img-src\s/g, `img-src 'self' data: blob: ${host} cdn.gh.squarefield.ltd github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com `)
-    .replace(/media-src\s/g, `media-src 'self' ${host} cdn.gh.squarefield.ltd github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com `)
-    .replace(/font-src\s/g, `font-src 'self' data: ${host} cdn.gh.squarefield.ltd github.githubassets.com raw.githubusercontent.com `)
-    .replace(/frame-src\s/g, `frame-src 'self' ${host} cdn.gh.squarefield.ltd github.githubassets.com raw.githubusercontent.com `)
-    .replace(/worker-src\s/g, `worker-src 'self' blob: ${host} cdn.gh.squarefield.ltd `)
-    .replace(/child-src\s/g, `child-src 'self' blob: ${host} cdn.gh.squarefield.ltd `)
-    .replace(/object-src\s/g, `object-src 'self' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/manifest-src\s/g, `manifest-src 'self' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/prefetch-src\s/g, `prefetch-src 'self' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/navigate-to\s/g, `navigate-to 'self' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/form-action\s/g, `form-action 'self' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/base-uri\s/g, `base-uri 'self' ${host} cdn.gh.squarefield.ltd `)
-    .replace(/frame-ancestors\s/g, `frame-ancestors 'self' ${host} cdn.gh.squarefield.ltd `)
+  // 修复：移除多余的域名和格式问题
+  // 1. 清理header中可能存在的重复项
+  header = header.replace(/cdn\.gh\.squarefield\.ltd(\s+cdn\.gh\.squarefield\.ltd)+/g, 'cdn.gh.squarefield.ltd');
+  
+  // 2. 修正connect-src指令中的格式问题
+  header = header.replace(/productionresultssa\*\.blob\.core\.windows\.net\//g, 'productionresultssa*.blob.core.windows.net');
+  
+  // 3. 修正frame-ancestors指令
+  header = header.replace(/frame-ancestors\s+([^;]+)/g, (match, sources) => {
+    if(sources.includes("'none'") && sources.trim() !== "'none'") {
+      return `frame-ancestors 'self'`; // 如果有none和其他值，就只用self
+    }
+    return match;
+  });
+  
+  // 4. 移除URL末尾的斜杠
+  header = header.replace(/\.githubusercontent\.com\/(\s|$)/g, '.githubusercontent.com$1');
+  
+  // 替换策略，避免重复添加域名
+  const updatedHeader = header
+    .replace(/github\.githubassets\.com/g, `github.githubassets.com ${host}`)
+    .replace(/github\.com/g, `github.com ${host}`)
+    .replace(/githubusercontent\.com/g, `githubusercontent.com ${host}`)
+    .replace(/script-src\s/g, `script-src 'unsafe-inline' 'unsafe-eval' ${host} `)
+    .replace(/style-src\s/g, `style-src 'unsafe-inline' ${host} `)
+    .replace(/connect-src\s/g, `connect-src 'self' ${host} uploads.github.com collector.github.com raw.githubusercontent.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com *.rel.tunnels.api.visualstudio.com objects-origin.githubusercontent.com copilot-proxy.githubusercontent.com proxy.individual.githubcopilot.com proxy.business.githubcopilot.com proxy.enterprise.githubcopilot.com *.actions.githubusercontent.com productionresultssa*.blob.core.windows.net github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com insights.github.com api.githubcopilot.com api.individual.githubcopilot.com api.business.githubcopilot.com api.enterprise.githubcopilot.com `)
+    .replace(/img-src\s/g, `img-src 'self' data: blob: ${host} github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com github-production-repository-image-32fea6.s3.amazonaws.com github-production-release-asset-2e65be.s3.amazonaws.com `)
+    .replace(/media-src\s/g, `media-src 'self' ${host} github.githubassets.com raw.githubusercontent.com github-cloud.s3.amazonaws.com `)
+    .replace(/font-src\s/g, `font-src 'self' data: ${host} github.githubassets.com raw.githubusercontent.com `)
+    .replace(/frame-src\s/g, `frame-src 'self' ${host} github.githubassets.com raw.githubusercontent.com `)
+    .replace(/worker-src\s/g, `worker-src 'self' blob: ${host} `)
+    .replace(/child-src\s/g, `child-src 'self' blob: ${host} `)
+    .replace(/object-src\s/g, `object-src 'self' ${host} `)
+    .replace(/manifest-src\s/g, `manifest-src 'self' ${host} `)
+    .replace(/prefetch-src\s/g, `prefetch-src 'self' ${host} `)
+    .replace(/navigate-to\s/g, `navigate-to 'self' ${host} `)
+    .replace(/form-action\s/g, `form-action 'self' ${host} `)
+    .replace(/base-uri\s/g, `base-uri 'self' ${host} `)
+    .replace(/frame-ancestors\s/g, `frame-ancestors 'self' `)
     .replace(/upgrade-insecure-requests/g, '');
+  
+  // 移除重复添加的域名
+  return updatedHeader.replace(/cdn\.gh\.squarefield\.ltd(\s+cdn\.gh\.squarefield\.ltd)+/g, 'cdn.gh.squarefield.ltd');
 };
 
 // 处理响应头，添加或修改CSP相关头部
@@ -738,8 +753,10 @@ const handleIncludeFragmentRequest = (req, res) => {
   // 支持多种域名的请求
   let targetUrl = fragmentUrl;
   if (!targetUrl.startsWith('http')) {
-    if (targetUrl.includes('cdn.gh.squarefield.ltd')) {
-      targetUrl = `https://${fragmentUrl}`;
+    // 处理相对路径
+    const cdnMatch = targetUrl.match(/^cdn\.([^\/]+)(.*)/);
+    if (cdnMatch) {
+      targetUrl = `https://${targetUrl}`;
     } else {
       targetUrl = `${config.github.baseUrl}${fragmentUrl}`;
     }
@@ -845,10 +862,22 @@ const handleIncludeFragmentRequest = (req, res) => {
     }
     
     function tryGitHubFallback() {
-      // 尝试从GitHub直接获取
-      const githubFallbackUrl = targetUrl
-        .replace('cdn.gh.squarefield.ltd', 'raw.githubusercontent.com')
-        .replace('/ZGIT-Network/OpenFrp-CrossPlatformLauncher/releases/expanded_assets/', '/ZGIT-Network/OpenFrp-CrossPlatformLauncher/releases/download/');
+      // 尝试从URL中提取仓库路径和文件信息
+      const releaseMatch = targetUrl.match(/\/([^\/]+)\/([^\/]+)\/releases\/([^\/]+)\/([^\/]+)/);
+      
+      let githubFallbackUrl;
+      if(releaseMatch) {
+        const [_, owner, repo, releaseType, releaseInfo] = releaseMatch;
+        if(releaseType === 'expanded_assets') {
+          githubFallbackUrl = targetUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com')
+            .replace('/expanded_assets/', '/download/');
+        } else {
+          githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
+        }
+      } else {
+        // 一般情况直接替换域名
+        githubFallbackUrl = targetUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com');
+      }
       
       console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
       

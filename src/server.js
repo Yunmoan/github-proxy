@@ -111,14 +111,18 @@ const server = http.createServer((req, res) => {
       }
       
       // 检查是否是CDN资源请求
-      if(req.url.includes('cdn.gh.squarefield.ltd')) {
+      if(req.url.includes('cdn.')) {
         // 提取完整的CDN URL
         let cdnUrl;
         if(req.url.includes('http')) {
-          const match = req.url.match(/https?:\/\/cdn\.gh\.squarefield\.ltd[^"'\s]*/);
+          const match = req.url.match(/https?:\/\/cdn\.[^"'\s]*/);
           cdnUrl = match ? match[0] : null;
         } else {
-          cdnUrl = `https://cdn.gh.squarefield.ltd${req.url.replace('/fragment/cdn.gh.squarefield.ltd', '')}`;
+          // 从请求路径中提取CDN网址
+          const cdnMatch = req.url.match(/\/fragment\/cdn\.([^\/]+)(.*)/);
+          if(cdnMatch) {
+            cdnUrl = `https://cdn.${cdnMatch[1]}${cdnMatch[2]}`;
+          }
         }
         
         if(!cdnUrl) {
@@ -213,10 +217,22 @@ const server = http.createServer((req, res) => {
           }
           
           function tryGitHubFallback() {
-            // 尝试从GitHub直接获取
-            const githubFallbackUrl = cdnUrl
-              .replace('cdn.gh.squarefield.ltd', 'raw.githubusercontent.com')
-              .replace('/ZGIT-Network/OpenFrp-CrossPlatformLauncher/releases/expanded_assets/', '/ZGIT-Network/OpenFrp-CrossPlatformLauncher/releases/download/');
+            // 从URL中提取仓库路径和文件信息
+            const releaseMatch = cdnUrl.match(/\/([^\/]+)\/([^\/]+)\/releases\/([^\/]+)\/([^\/]+)/);
+            
+            let githubFallbackUrl;
+            if(releaseMatch) {
+              const [_, owner, repo, releaseType, releaseInfo] = releaseMatch;
+              if(releaseType === 'expanded_assets') {
+                githubFallbackUrl = cdnUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com')
+                  .replace('/expanded_assets/', '/download/');
+              } else {
+                githubFallbackUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${releaseType}/${releaseInfo}`;
+              }
+            } else {
+              // 一般情况直接替换域名
+              githubFallbackUrl = cdnUrl.replace(/cdn\.[^\/]+/, 'raw.githubusercontent.com');
+            }
             
             console.log(`尝试GitHub备用源: ${githubFallbackUrl}`);
             
