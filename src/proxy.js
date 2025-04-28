@@ -144,24 +144,40 @@ const getOrSetCache = (cacheKey, maxAge, fetchCallback) => {
 const processCSPHeader = (header, host) => {
   if (!header) return header;
   
-  // 解析CSP指令并构建新指令集
-  const domains = [`'self'`, host, `${host}/assets`, `${host}/raw`, `${host}/api`, `${host}/releases`, `${host}/expanded_assets`, `${host}/api/_private`, `cdn.gh.squarefield.ltd`, `*.githubusercontent.com`, `*.githubassets.com`, `data:`, `blob:`, `unsafe-inline`, `unsafe-eval`];
+  // 构建安全源列表（确保引号正确）
+  const sources = [
+    `'self'`, 
+    host, 
+    `${host}/assets`, 
+    `${host}/raw`, 
+    `${host}/api`, 
+    `${host}/releases`, 
+    `${host}/expanded_assets`, 
+    `${host}/api/_private`, 
+    'cdn.gh.squarefield.ltd', 
+    '*.githubusercontent.com', 
+    '*.githubassets.com',
+    'data:', 
+    'blob:'
+  ];
   
-  // 构建简化的CSP指令
+  // 构建完整的CSP指令集
   const directives = {
     'default-src': [`'self'`, host],
-    'script-src': [...domains, `'unsafe-inline'`, `'unsafe-eval'`],
-    'style-src': [...domains, `'unsafe-inline'`],
-    'img-src': [...domains, `data:`, `blob:`, `avatars.githubusercontent.com`, `repository-images.githubusercontent.com`],
-    'connect-src': [...domains, `wss://${host}`, `cdn.gh.squarefield.ltd`, `cdn.gh.squarefield.ltd/api/_private/*`, `github.com`, `api.github.com`],
-    'font-src': [...domains, `data:`, `github.githubassets.com`],
-    'frame-src': [...domains, `render.githubusercontent.com`],
-    'media-src': [...domains, `data:`, `blob:`],
-    'worker-src': [`'self'`, host, `blob:`, `github.com`],
-    'manifest-src': [`'self'`, host, `github.githubassets.com`]
+    'script-src': [...sources, `'unsafe-inline'`, `'unsafe-eval'`],
+    'script-src-elem': [...sources, `'unsafe-inline'`, `'unsafe-eval'`],
+    'style-src': [...sources, `'unsafe-inline'`],
+    'style-src-elem': [...sources, `'unsafe-inline'`],
+    'img-src': [...sources, 'avatars.githubusercontent.com', 'repository-images.githubusercontent.com', 'user-images.githubusercontent.com'],
+    'connect-src': [...sources, `wss://${host}`, 'github.com', 'api.github.com'],
+    'font-src': [...sources, 'github.githubassets.com'],
+    'frame-src': [...sources, 'render.githubusercontent.com'],
+    'media-src': [...sources],
+    'worker-src': [`'self'`, host, 'blob:', 'github.com'],
+    'manifest-src': [`'self'`, host, 'github.githubassets.com']
   };
-
-  // 生成新的CSP头
+  
+  // 生成CSP头，确保不重复值
   return Object.entries(directives)
     .map(([directive, values]) => `${directive} ${[...new Set(values)].join(' ')}`)
     .join('; ');
